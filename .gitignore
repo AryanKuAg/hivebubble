@@ -1,0 +1,9 @@
+node_modules/
+dist/
+target/
+.env
+.env.local
+.DS_Store
+*.log
+.hivebubble/
+apps/desktop/src-tauri/gen/

@@ -1,0 +1,19 @@
+:root {
+  font-family: Georgia, 'Times New Roman', serif;
+  color: #2b2118;
+  background: #fffaf0;
+}
+body { margin: 0; }
+main { max-width: 880px; margin: 0 auto; padding: 48px 24px 96px; }
+.hero { padding: 64px 0 48px; }
+.eyebrow { text-transform: uppercase; letter-spacing: 0.14em; font: 600 12px/1 system-ui, sans-serif; color: #8a5a00; }
+h1 { font-size: clamp(36px, 6vw, 56px); line-height: 1.05; margin: 12px 0 16px; }
+.lede { font-size: 20px; max-width: 520px; color: #5c4a3a; }
+.button { display: inline-block; margin-top: 16px; padding: 12px 20px; background: #2b2118; color: #fffaf0; border-radius: 6px; text-decoration: none; font: 600 15px/1 system-ui, sans-serif; }
+.menu h2 { font-size: 28px; }
+.menu ul { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+.menu li { background: #fff; border: 1px solid #ecdcc4; border-radius: 10px; padding: 20px; }
+.menu h3 { margin: 0 0 6px; font-size: 20px; }
+.menu p { margin: 0 0 12px; color: #5c4a3a; font-family: system-ui, sans-serif; font-size: 14px; }
+.price { font: 700 16px/1 system-ui, sans-serif; color: #8a5a00; }
+footer { margin-top: 48px; color: #5c4a3a; font-family: system-ui, sans-serif; font-size: 14px; }

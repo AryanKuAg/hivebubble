@@ -1,9 +1,57 @@
-# Hivebubble: build plan
+# Hivebubble
 
 > **Talk to your website. Watch the hive build it.**
 > An open-source Mac app that puts a Claude-powered chat bubble on your localhost site, so anyone can build, deploy and run a custom web app without opening an editor or a terminal.
 
-Draft v0.1 · 2026-11-20 · Facts about the Claude Agent SDK and similar tools were checked on this date (sources at the end).
+---
+
+## Try v0.1 (milestone M1)
+
+**What works today:**
+- Open a JavaScript web project. Hivebubble installs its packages, starts its dev server and puts a chat bubble on the page at `http://localhost:4321`.
+- Type what you want, or pick a part of the page first. Claude edits the code and the page updates live through hot reload.
+- **Bee cursors** fly over the page while the agent reads and edits files. Each bee is labelled with the real file being worked on.
+- The **Smart Router** picks Claude's effort for each message. A **Quick / Auto / Thorough** switch moves it down or up a level.
+- **Undo** reverts the last change.
+- The **Mac app** keeps your API key in the macOS Keychain and remembers recent projects.
+
+**You need:** macOS, Node.js 20.19 or newer, pnpm 9, and your own Anthropic API key. For the Mac app you also need the Rust toolchain.
+
+```bash
+git clone https://github.com/AryanKuAg/hivebubble.git && cd hivebubble
+pnpm install && pnpm build
+
+# Demo mode: no API key, no Claude calls. It can only change text.
+pnpm demo                    # opens the example bakery site with the bubble
+
+# With Claude
+echo "ANTHROPIC_API_KEY=sk-ant-..." > .env.local
+pnpm start path/to/your/project
+
+# The Mac app (Tauri)
+pnpm desktop
+```
+
+**What's in the repo:**
+
+| Path | What it is |
+|---|---|
+| `packages/core` | The engine: project detection, dev-server runner, preview proxy, Smart Router, Claude Agent SDK runner, undo checkpoints, CLI |
+| `packages/bubble` | The in-page widget: chat, element picker, bee cursors (Shadow DOM, about 22 KB) |
+| `apps/desktop` | The Tauri Mac app around the engine |
+| `examples/vite-react` | A small bakery site to try it on |
+
+**Tests:**
+- `pnpm test` runs the unit tests.
+- `pnpm smoke` runs an end-to-end check while `pnpm demo` is running.
+
+**Known limits in v0.1:**
+- The Mac app runs the engine from this repo checkout. A packaged `.dmg` with Node bundled inside comes in v0.2.
+- The agent can read, search and edit files inside the project only. It can't run commands, so it asks you to install packages.
+- Until source tags land (M2), bee positions on the page are approximate. The activity they show is real.
+- Next.js and other frameworks are detected and started, but only Vite has been tested end to end so far.
+
+Everything below is the build plan (drafted 2026-11-20; facts about the Claude Agent SDK and similar tools were checked on that date, with sources at the end).
 
 ---
 
@@ -170,7 +218,7 @@ Collect 30–50 real prompts across the table rows, each with a small "done" che
 
 ## 7. Swarm cursors
 
-**They move because the agent is actually working.** In Hivebubble the cursors are small bees, the project's mascot.
+**A swarm of bees flies out of the hive when work starts.** The swarm grows with the router's effort level (3 bees for Quick, up to 6 for Deep). Every real step the agent takes is handed to the next bee in turn, so the labels always show real work. Bees circle the element being worked on, then fly back into the hive when the task is done. Every bee has its own flying personality (Zippy darts, Bumble drifts, Loopy loops, Glide arcs, Jitters fidgets, Steady bobs, Swoop swoops), with its own speed, turning, sway, wingbeat and size, so the swarm never moves in lockstep.
 
 - **Where the events come from:** Agent SDK hooks send `{agent, tool, file, lines}` to the bubble through the proxy's WebSocket.
 - **From a file to an element on the page:** a dev-only build plugin stamps `data-hivebubble-src="src/components/Hero.tsx:14"` on JSX elements (the same idea as LocatorJS and click-to-component). A cursor can then fly to the element whose code is being read or edited. The plugin never runs in production builds.
@@ -319,8 +367,8 @@ Every milestone ends with something you can film.
 
 | # | Milestone | Done when | Post / reel |
 |---|---|---|---|
-| **M0** | Foundations | Repo is public with a license, a README with the diagram, and CI | "I'm building an app that lets anyone build apps by talking to their website", with the architecture diagram |
-| **M1** | Bubble on localhost | Open a Next.js or Vite folder, and Hivebubble installs dependencies, starts the dev server and injects the bubble. Chat edits the page at a fixed effort, and hot reload shows the change. | The first "typed one sentence, site changed" reel |
+| **M0** ✅ | Foundations | Repo is public with a license, a README with the diagram, and CI | "I'm building an app that lets anyone build apps by talking to their website", with the architecture diagram |
+| **M1** ✅ v0.1 | Bubble on localhost | Open a Next.js or Vite folder, and Hivebubble installs dependencies, starts the dev server and injects the bubble. Chat edits the page at a fixed effort, and hot reload shows the change. | The first "typed one sentence, site changed" reel |
 | **M2** | Swarm cursors + picker | Cursors follow real tool events, and the picker attaches `file:line` | **The hero reel:** cursors building a page |
 | **M3** | Router v1 + undo + cost | Rules router, one retry on failure, checkpoints and Undo, cost meter and cap, a test set of 30 prompts | "Auto effort vs. always-max: same result, X× faster, Y× cheaper", with real numbers |
 | **M4** | Skills & starters | Registry, lock file, Skills screen, "new app from a starter" | "Empty folder to working booking app" timelapse |
@@ -356,9 +404,9 @@ Every milestone ends with something you can film.
 
 ## 17. Decisions for you
 
-1. **Name:** go with Hivebubble? Check the handles and domain first.
-2. **App shell:** Tauri (recommended) or SwiftUI?
-3. **License:** Apache-2.0 (recommended: adds a patent grant) or MIT (simplest)? AGPL would keep forks open but puts off companies and contributors.
+1. **Name:** Hivebubble (decided). Still to do: register the domain and grab the handles.
+2. **App shell:** Tauri (decided).
+3. **License:** Apache-2.0 (decided).
 4. **Claude access:** API keys only at launch, or also ask Anthropic about approval for subscription login?
 5. **First frameworks for M1:** only Next.js and Vite + React?
 6. **First deploy target:** Vercel?
@@ -367,10 +415,10 @@ Every milestone ends with something you can film.
 
 ## 18. First-week checklist
 
-- [x] Create the GitHub repo and publish this plan as the README. Still to add: a license.
-- [ ] Scaffold the monorepo (pnpm + Turborepo) and a Tauri app that can open a folder.
-- [ ] **Spike 1:** a proxy that injects a "hello" bubble into a Next.js dev server page while hot reload keeps working.
-- [ ] **Spike 2:** an Agent SDK sidecar where one prompt edits a project file and hot reload shows it. Log every hook event.
+- [x] Create the GitHub repo, the Apache-2.0 license and CI, and publish this plan as the README.
+- [x] Scaffold the monorepo (pnpm workspaces; Turborepo can come later) and a Tauri app that can open a folder.
+- [x] **Spike 1:** a proxy that injects the bubble into a dev server page while hot reload keeps working (verified on Vite; Next.js still to test).
+- [x] **Spike 2:** an Agent SDK runner where one prompt edits a project file and hot reload shows it, with every hook event streamed to the bee cursors (end to end in demo mode; first real Claude run needs an API key).
 - [ ] **Spike 3:** the dev-only JSX tag plugin. Clicking an element returns its `file:line`.
 - [ ] Post: a day-1 announcement with the architecture diagram.
 

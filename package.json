@@ -1,0 +1,21 @@
+{
+  "name": "hivebubble",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Talk to your website, watch the hive build it.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "packageManager": "pnpm@9.1.1",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "build": "pnpm --filter @hivebubble/bubble build && pnpm --filter @hivebubble/core build",
+    "test": "pnpm build && pnpm --filter @hivebubble/core test",
+    "start": "node packages/core/dist/cli.js",
+    "demo": "node packages/core/dist/cli.js examples/vite-react --mock-agent",
+    "desktop": "pnpm build && pnpm --filter @hivebubble/desktop dev",
+    "desktop:build": "pnpm build && pnpm --filter @hivebubble/desktop build",
+    "smoke": "node packages/core/scripts/smoke.mjs http://localhost:4321 examples/vite-react"
+  }
+}
