@@ -26,6 +26,15 @@
           <button id="example" class="secondary" type="button" hidden>Try the example bakery site</button>
         </div>
         <label class="check"><input id="demo" type="checkbox" /> Demo mode <span class="muted">(no Claude calls, can only change text)</span></label>
+        <hr />
+        <h2>Start something new</h2>
+        <p class="muted">Say what you want to build. Hivebubble picks a starter, copies it into a new folder, starts it, and puts your request in the bubble for Claude.</p>
+        <form id="new-form" class="new-form">
+          <label for="new-what" class="sr-only">What do you want to build?</label>
+          <input id="new-what" placeholder="A booking app for my salon" autocomplete="off" />
+          <button class="primary" type="submit">Create…</button>
+        </form>
+        <p id="new-msg" class="muted small" role="status"></p>
         <div id="recent-wrap" hidden>
           <h3>Recent</h3>
           <ul id="recent"></ul>
@@ -57,6 +66,23 @@
           <summary>Log</summary>
           <pre id="log"></pre>
         </details>
+        <section class="skills" aria-labelledby="skills-title">
+          <h3 id="skills-title">Skills</h3>
+          <p class="small muted">Extra know-how Claude can use in this project. Hivebubble only adds reviewed skills, pinned to an exact version, and never updates one without showing you what changes.</p>
+          <ul id="skills-installed" class="skill-list"></ul>
+          <div id="skill-diff" class="diff" hidden>
+            <pre></pre>
+            <div class="row">
+              <button id="diff-apply" class="primary" type="button">Update</button>
+              <button id="diff-cancel" class="secondary" type="button">Keep this version</button>
+            </div>
+          </div>
+          <div id="skills-available-wrap">
+            <h4>Add a skill</h4>
+            <ul id="skills-available" class="skill-list"></ul>
+          </div>
+          <p id="skills-msg" class="muted small" role="status"></p>
+        </section>
       </section>
 
       <!-- Settings -->

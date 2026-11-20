@@ -5,7 +5,7 @@
 
 ---
 
-## Try it (milestones M1 to M3)
+## Try it (milestones M1 to M4)
 
 **What works today:**
 - Open a JavaScript web project. Hivebubble installs its packages, starts its dev server and puts a chat bubble on the page at `http://localhost:4321`.
@@ -25,6 +25,15 @@
 - **Cost you can see and cap.** A live cost meter runs while Claude works. Big tasks show an estimate and wait for a yes. Hivebubble pauses for the day at a daily limit ($5 by default, set in the Mac app or with `--daily-cap`), and each task stays under a task limit ($2, `--max-budget`). The bubble and the Mac app show today's and this month's spending.
 - **Undo** reverts the last change, also after a restart. It won't silently overwrite edits made after the task: it asks first.
 - Every task is written to `.hivebubble/router-log.jsonl` (signals, effort, checks, cost, time, outcome, later undos). Estimates for big tasks come from it.
+- **Start something new.** Say what you want ("a booking app for my salon") on the Mac app's home screen, or run `pnpm new --for "…"`. Hivebubble:
+  - picks a starter (a working booking app, a small-business website, or Vite's blank React + TypeScript app);
+  - copies it into a new folder without its git history, installs it and starts it;
+  - waits with your request in the bubble, so Claude adapts the app to you.
+- **Skills.**
+  - **Built in:** Hivebubble's own skills ship as a plugin and are always available: house style, what "done" means, and explaining changes in plain words.
+  - **From the registry:** reviewed skills can be added to a project. Each is pinned to a commit, with its license and the date it was read. Before a task, the router offers one that fits, once. During a task, only the skills it needs are switched on.
+  - **The Skills screen** (Mac app) shows each skill's reason, version, license and files. It shows the diff before any update, and removes skills.
+  - **The lock file** `.hivebubble/skills.lock` records where each skill came from and why.
 - The **Mac app** keeps your API key in the macOS Keychain, remembers recent projects and shows your spending and daily limit.
 
 **You need:** macOS, Node.js 20.19 or newer, pnpm 9, and your own Anthropic API key. For the Mac app you also need the Rust toolchain.
@@ -40,6 +49,9 @@ pnpm demo                    # opens the example bakery site with the bubble
 echo "ANTHROPIC_API_KEY=sk-ant-..." > .env.local
 pnpm start path/to/your/project
 
+# A new app from a starter, then run it with your request waiting in the bubble
+pnpm new --for "a booking app for my salon"     # prints the command to start it
+
 # The Mac app (Tauri)
 pnpm desktop
 ```
@@ -51,6 +63,9 @@ pnpm desktop
 | `packages/core` | The engine: project detection, dev-server runner, preview proxy, Smart Router, Claude Agent SDK runner, step locator (which lines and selectors each tool call touches), undo checkpoints, CLI |
 | `packages/bubble` | The in-page widget: chat, element picker, bee cursors and their effects (Shadow DOM, about 43 KB, 15 KB gzipped) |
 | `packages/source-tags` | The dev-only transform that stamps `data-hivebubble-src="file:line:col"` on page elements, as a Vite plugin |
+| `plugin` | Hivebubble's own skills (house style, verify, explain), loaded as a Claude Code plugin |
+| `registry` | The curated skills and starters (`skills.json`, `starters.json`). New entries come by pull request |
+| `starters` | Hivebubble's own starters: a booking app and a small-business website |
 | `apps/desktop` | The Tauri Mac app around the engine |
 | `examples/vite-react` | A small bakery site to try it on |
 
@@ -70,6 +85,7 @@ pnpm desktop
 - Next.js and other frameworks are detected and started, but only Vite has been tested end to end so far.
 - The build check runs for Vite projects only (a build next to a running `next dev` would fight over `.next`), and there is no visual check yet. The router's LLM tie-breaker for unclear requests (§6) isn't built; unclear requests get balanced effort.
 - Cost estimates are a rough range until a project has a few finished tasks at that effort. The router's numbers in the benchmark need a real run with your API key, so none are published yet.
+- The registry is small to start: two skills and three starters, all for Vite and React. Finding skills beyond it (skills.sh, GitHub search) isn't built yet. Skills that need to run scripts can't, because the agent has no shell.
 
 Everything below is the build plan (drafted 2026-11-20; facts about the Claude Agent SDK and similar tools were checked on that date, with sources at the end).
 
@@ -341,7 +357,8 @@ hivebubble/
 │  ├─ deploy/         # provider adapters (vercel, netlify, cloudflare, …)
 │  └─ data/           # DB connectors, plain-English → SQL, safe-write flow, logs
 ├─ registry/          # skills.json, starters.json (community PRs welcome)
-├─ skills/            # Hivebubble's own skills
+├─ plugin/            # Hivebubble's own skills, as a Claude Code plugin
+├─ starters/          # Hivebubble's own starter projects
 ├─ docs/diagrams/     # architecture + message-flow diagrams (diagram-design)
 └─ README.md (this plan) · LICENSE · CONTRIBUTING.md · CODE_OF_CONDUCT.md
 ```
@@ -391,7 +408,7 @@ Every milestone ends with something you can film.
 | **M1** ✅ v0.1 | Bubble on localhost | Open a Next.js or Vite folder, and Hivebubble installs dependencies, starts the dev server and injects the bubble. Chat edits the page at a fixed effort, and hot reload shows the change. | The first "typed one sentence, site changed" reel |
 | **M2** ✅ | Swarm cursors + picker | Cursors follow real tool events, and the picker attaches `file:line` | **The hero reel:** cursors building a page |
 | **M3** ✅ | Router v1 + undo + cost | Rules router, one retry on failure, checkpoints and Undo, cost meter and cap, a test set of 30 prompts | "Auto effort vs. always-max: same result, X× faster, Y× cheaper", with real numbers |
-| **M4** | Skills & starters | Registry, lock file, Skills screen, "new app from a starter" | "Empty folder to working booking app" timelapse |
+| **M4** ✅ | Skills & starters | Registry, lock file, Skills screen, "new app from a starter" | "Empty folder to working booking app" timelapse |
 | **M5** | Deploy wizard | Vercel works end to end with illustrated steps, then Netlify and Cloudflare | "Localhost to a live URL in one click" |
 | **M6** | Users & Data | Read-only queries on Supabase and Postgres, a logs summary, safe writes | "I asked my app who signed up today" |
 | **M7** | Beyond the Mac | Windows and Linux builds, plus an optional Chrome extension that attaches to any localhost | Platform launch posts |

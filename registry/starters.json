@@ -1,0 +1,41 @@
+{
+  "about": "Starter projects for \"make me a …\" requests (README §8). Hivebubble copies one without its git history, installs its packages and starts it; Claude then adapts it. Licenses must allow reuse. Remote entries are pinned to a commit.",
+  "fallback": "landing",
+  "starters": [
+    {
+      "id": "booking",
+      "title": "Booking app",
+      "description": "Services, open time slots and a booking form, with bookings kept in the browser. Vite and React.",
+      "source": { "local": "starters/booking" },
+      "license": "Apache-2.0",
+      "reviewed": "2026-11-20",
+      "verified": true,
+      "keywords": ["booking", "book", "bookings", "appointment", "appointments", "reservation", "reservations", "reserve", "schedule", "scheduling", "salon", "barber", "clinic", "lesson", "lessons", "slots", "calendar"]
+    },
+    {
+      "id": "landing",
+      "title": "Small business website",
+      "description": "A one-page site: what you offer, opening hours and how to find you. Vite and React.",
+      "source": { "local": "starters/landing" },
+      "license": "Apache-2.0",
+      "reviewed": "2026-11-20",
+      "verified": true,
+      "keywords": ["website", "web site", "site", "landing", "homepage", "home page", "business", "studio", "shop", "store", "cafe", "café", "bakery", "restaurant", "portfolio"]
+    },
+    {
+      "id": "vite-react-ts",
+      "title": "Blank React app (TypeScript)",
+      "description": "Vite's official React and TypeScript template: a clean start for anything else.",
+      "source": {
+        "repo": "vitejs/vite",
+        "path": "packages/create-vite/template-react-ts",
+        "sha": "47321be084bda7f3d777e096b68bc1ddeb45aed4",
+        "renames": { "_gitignore": ".gitignore", "_oxlintrc.json": ".oxlintrc.json" }
+      },
+      "license": "MIT",
+      "reviewed": "2026-11-20",
+      "verified": true,
+      "keywords": ["typescript", "blank", "empty", "app", "tool", "dashboard"]
+    }
+  ]
+}

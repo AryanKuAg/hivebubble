@@ -8,6 +8,8 @@ import { CostMeter, type TokenTotals } from './cost.js';
 import { Locator, toolFile } from './locate.js';
 import { insideProject, projectRelative } from './paths.js';
 import { SYSTEM_APPEND } from './prompt.js';
+import { pluginDir } from './registry.js';
+import { OWN_SKILLS } from './skills.js';
 import type { Route, ServerEvent, ToolAction } from './types.js';
 import { VERSION } from './version.js';
 
@@ -31,6 +33,8 @@ export interface AgentRequest {
   /** Session to continue, so follow-ups like "a bit bigger" keep their context. */
   resume?: string;
   maxBudgetUsd: number;
+  /** The skills switched on for this task (the router's pick); every other skill stays hidden. */
+  skills?: string[];
 }
 
 export interface AgentResult {
@@ -217,7 +221,10 @@ export async function runClaude(ctx: AgentContext, req: AgentRequest): Promise<A
           PostToolUse: [{ hooks: [after] }],
           PostToolUseFailure: [{ hooks: [after] }],
         },
+        // Project skills (.claude/skills) and Hivebubble's own plugin; the router picks which are on.
         settingSources: ['project'],
+        plugins: [{ type: 'local', path: pluginDir() }],
+        skills: req.skills ?? [OWN_SKILLS.explain, OWN_SKILLS.style],
         systemPrompt: { type: 'preset', preset: 'claude_code', append: SYSTEM_APPEND },
         maxTurns: 40,
         maxBudgetUsd: req.maxBudgetUsd,

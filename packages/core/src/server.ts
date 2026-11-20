@@ -26,6 +26,8 @@ export interface StartOptions {
   agent?: 'auto' | 'mock';
   apiKey?: string;
   maxBudgetUsd?: number;
+  /** A request to put in the bubble's message box (from creating the app). */
+  draft?: string;
   reporter: Reporter;
 }
 
@@ -79,6 +81,7 @@ export async function startHivebubble(opts: StartOptions): Promise<Running> {
     agent,
     apiKey: opts.apiKey,
     maxBudgetUsd: opts.maxBudgetUsd,
+    draft: opts.draft,
     log,
     checker,
     // Only page files count: a project with nothing but config gets built from the start.

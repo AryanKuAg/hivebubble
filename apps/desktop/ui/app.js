@@ -104,9 +104,166 @@ function showHome(error) {
   void refresh();
 }
 
+// ---- skills: the engine's `skills` command does the work (README §8) ----
+let currentProject = null;
+
+function el(tag, attrs = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === 'class') node.className = v;
+    else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
+    else node.setAttribute(k, v);
+  }
+  for (const c of children) if (c !== null && c !== undefined && c !== false) node.append(c);
+  return node;
+}
+
+const badge = (text, kind = '') => el('span', { class: `badge ${kind}` }, text);
+
+async function skillsCli(...args) {
+  return JSON.parse(await invoke('run_cli', { args: ['skills', ...args] }));
+}
+
+/** A button that asks once more before doing something hard to undo. */
+function twoStep(label, sure, action) {
+  let armed = false;
+  const btn = el('button', { type: 'button', class: 'link' }, label);
+  btn.addEventListener('click', () => {
+    if (!armed) {
+      armed = true;
+      btn.textContent = sure;
+      setTimeout(() => {
+        armed = false;
+        btn.textContent = label;
+      }, 4000);
+      return;
+    }
+    void action();
+  });
+  return btn;
+}
+
+async function refreshSkills() {
+  if (!currentProject) return;
+  let data;
+  try {
+    data = await skillsCli('list', currentProject);
+  } catch (err) {
+    $('skills-msg').textContent = String(err);
+    return;
+  }
+  const installed = $('skills-installed');
+  installed.replaceChildren();
+  for (const s of data.installed) {
+    const link = s.url ? el('button', { type: 'button', class: 'link', onclick: () => invoke('open_link', { url: s.url }) }, 'Files') : null;
+    installed.append(
+      el(
+        'li',
+        {},
+        el('div', { class: 'head' }, el('strong', {}, s.title), s.verified ? badge('Reviewed', 'ok') : badge(s.byHand ? 'Added by hand' : 'Not reviewed'), s.scripts ? badge('Has scripts', 'warn') : null, s.modified ? badge('Changed since added', 'warn') : null, s.update ? badge(`Update: ${s.update.version}`, 'new') : null),
+        el('p', { class: 'small muted' }, s.description || ''),
+        el('p', { class: 'small' }, `Why: ${s.reason}`, s.version ? ` · Version ${s.version} · ${s.license}` : ''),
+        el(
+          'div',
+          { class: 'row' },
+          link,
+          s.update ? el('button', { type: 'button', class: 'link', onclick: () => showDiff(s.name) }, 'See the update…') : null,
+          twoStep('Remove', 'Remove it? Click again', async () => {
+            await skillAction(['remove', currentProject, s.name], `Removed ${s.title}.`);
+          }),
+        ),
+      ),
+    );
+  }
+  if (data.installed.length === 0) installed.append(el('li', { class: 'muted small' }, 'No skills yet. Claude still has Hivebubble’s own house style and checks.'));
+  const available = $('skills-available');
+  available.replaceChildren();
+  for (const a of data.available) {
+    available.append(
+      el(
+        'li',
+        {},
+        el('div', { class: 'head' }, el('strong', {}, a.title), a.verified ? badge('Reviewed', 'ok') : badge('Not reviewed', 'warn'), a.scripts ? badge('Has scripts', 'warn') : null),
+        el('p', { class: 'small muted' }, `${a.description} By ${a.author}, ${a.license}.`),
+        el(
+          'div',
+          { class: 'row' },
+          el('button', { type: 'button', class: 'link', onclick: () => invoke('open_link', { url: a.url }) }, 'Files'),
+          el('button', { type: 'button', class: 'secondary small-btn', onclick: () => skillAction(['add', currentProject, a.id], `Added ${a.title}.`) }, 'Add'),
+        ),
+      ),
+    );
+  }
+  $('skills-available-wrap').hidden = data.available.length === 0;
+}
+
+async function skillAction(args, done) {
+  $('skills-msg').textContent = 'Working…';
+  try {
+    await skillsCli(...args);
+    $('skills-msg').textContent = done;
+  } catch (err) {
+    $('skills-msg').textContent = String(err);
+  }
+  $('skill-diff').hidden = true;
+  void refreshSkills();
+}
+
+async function showDiff(name) {
+  $('skills-msg').textContent = 'Fetching the update…';
+  try {
+    const { diff } = await skillsCli('diff', currentProject, name);
+    if (!diff) {
+      $('skills-msg').textContent = 'Already up to date.';
+      return;
+    }
+    const lines = [`${name}: ${diff.from} → ${diff.to} (reviewed ${diff.reviewed})`];
+    if (diff.added.length) lines.push(`New files: ${diff.added.join(', ')}`);
+    if (diff.removed.length) lines.push(`Removed files: ${diff.removed.join(', ')}`);
+    if (diff.changed.length) lines.push(`Changed files: ${diff.changed.join(', ')}`);
+    if (diff.scripts) lines.push('This version includes scripts.');
+    lines.push('', diff.skillMd || '(SKILL.md is unchanged)');
+    $('skill-diff').querySelector('pre').textContent = lines.join('\n');
+    $('skill-diff').hidden = false;
+    $('diff-apply').onclick = () => skillAction(['update', currentProject, name], `Updated ${name} to ${diff.to}.`);
+    $('skills-msg').textContent = '';
+  } catch (err) {
+    $('skills-msg').textContent = String(err);
+  }
+}
+
+$('diff-cancel').addEventListener('click', () => {
+  $('skill-diff').hidden = true;
+});
+
+// ---- start something new: a starter, a new folder, the request in the bubble ----
+$('new-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const what = $('new-what').value.trim();
+  if (!what) {
+    $('new-msg').textContent = 'Say what you want to build first, like “a booking app for my salon”.';
+    return;
+  }
+  const parent = await invoke('pick_folder', { title: 'Choose where to create it' });
+  if (!parent) return;
+  $('new-msg').textContent = 'Creating it…';
+  try {
+    const created = JSON.parse(await invoke('create_project', { parent, what }));
+    $('new-msg').textContent = `Created from the ${created.starter.title} starter.`;
+    $('new-what').value = '';
+    void start(created.dir, what);
+  } catch (err) {
+    $('new-msg').textContent = String(err);
+  }
+});
+
 function showRunning(project) {
+  currentProject = project;
   $('home').hidden = true;
   $('running').hidden = false;
+  $('skill-diff').hidden = true;
+  $('skills-msg').textContent = '';
+  void refreshSkills();
   $('project-name').textContent = basename(project);
   $('project-path').textContent = project;
   $('live').hidden = true;
@@ -142,10 +299,10 @@ function appendLog(line) {
   pre.scrollTop = pre.scrollHeight;
 }
 
-async function start(project) {
+async function start(project, prompt) {
   showRunning(project);
   try {
-    await invoke('start_project', { project, demo: $('demo').checked || selftest });
+    await invoke('start_project', { project, demo: $('demo').checked || selftest, prompt: prompt || null });
   } catch (err) {
     showHome(String(err));
   }
@@ -187,7 +344,7 @@ listen('core-exit', () => {
 });
 
 $('choose').addEventListener('click', async () => {
-  const folder = await invoke('pick_folder');
+  const folder = await invoke('pick_folder', { title: 'Choose your project folder' });
   if (folder) start(folder);
 });
 $('example').addEventListener('click', () => start($('example').dataset.path));

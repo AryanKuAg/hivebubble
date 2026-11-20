@@ -1,0 +1,7 @@
+{
+  "name": "hivebubble",
+  "version": "0.1.0",
+  "description": "Hivebubble's own skills: the house style for changing someone's project, what done means, and how to explain changes to people who don't code.",
+  "author": { "name": "Hivebubble" },
+  "license": "Apache-2.0"
+}

@@ -299,6 +299,11 @@ export function mount(): void {
         setBusy(e.busy);
         if (e.busy) swarm.launch(SWARM_SIZE[taskEffort]);
         undoBtn.disabled = !e.canUndo;
+        // A new app: what was asked for when creating it waits in the message box.
+        if (e.draft && !textarea.value.trim()) {
+          textarea.value = e.draft;
+          setOpen(true);
+        }
         if (!panel.hidden) showEmpty();
         break;
       case 'user':
@@ -328,13 +333,29 @@ export function mount(): void {
         break;
       }
       case 'confirm': {
-        const { route, estimate, spend } = e;
-        const guess = estimate.basis === 'typical' ? ' (a rough guess until Hivebubble has seen a few of yours)' : ', based on your past tasks like it';
-        const left = `You have ${money(spend.remainingUsd)} left of today's ${money(spend.dailyCapUsd)} limit.`;
-        addCard(`This is a big job (${route.label} effort). It usually costs ${money(estimate.lowUsd)}–${money(estimate.highUsd)}${guess}. ${left} Start it?`, [
-          { label: 'Start', primary: true, onClick: () => connection.send({ type: 'confirm', id: e.id, ok: true }) },
-          { label: 'Not now', onClick: () => connection.send({ type: 'confirm', id: e.id, ok: false }) },
-        ]);
+        const answer = (ok: boolean) => () => connection.send({ type: 'confirm', id: e.id, ok });
+        if (e.kind === 'skill') {
+          const s = e.skill;
+          const by = `${s.author}, ${s.license} license${s.verified ? ', reviewed for Hivebubble' : ', not reviewed'}`;
+          const card = addCard(`The “${s.title}” skill could help with this: ${s.description} (${by}.) Add it to this project?`, [
+            { label: 'Add it', primary: true, onClick: answer(true) },
+            { label: 'Not now', onClick: answer(false) },
+          ]);
+          const link = document.createElement('a');
+          link.href = s.url;
+          link.target = '_blank';
+          link.rel = 'noreferrer';
+          link.textContent = 'See its files';
+          card.querySelector('.actions')!.append(link);
+        } else {
+          const { route, estimate, spend } = e;
+          const guess = estimate.basis === 'typical' ? ' (a rough guess until Hivebubble has seen a few of yours)' : ', based on your past tasks like it';
+          const left = `You have ${money(spend.remainingUsd)} left of today's ${money(spend.dailyCapUsd)} limit.`;
+          addCard(`This is a big job (${route.label} effort). It usually costs ${money(estimate.lowUsd)}–${money(estimate.highUsd)}${guess}. ${left} Start it?`, [
+            { label: 'Start', primary: true, onClick: answer(true) },
+            { label: 'Not now', onClick: answer(false) },
+          ]);
+        }
         if (panel.hidden) setOpen(true);
         break;
       }

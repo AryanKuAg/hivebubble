@@ -48,6 +48,18 @@ export interface SpendSummary {
   remainingUsd: number;
 }
 
+/** A registry skill offered before a task (README §8). */
+export interface SkillOffer {
+  id: string;
+  title: string;
+  description: string;
+  author: string;
+  license: string;
+  /** Someone read every file at the pinned commit. */
+  verified: boolean;
+  url: string;
+}
+
 export interface CostEstimate {
   lowUsd: number;
   highUsd: number;
@@ -135,6 +147,8 @@ export type ServerEvent =
       /** True when the dev server stamps data-hivebubble-src on page elements. */
       sourceTags: boolean;
       spend: SpendSummary;
+      /** A request to put in the message box (what someone asked for when creating the app). */
+      draft?: string;
     }
   | { type: 'route'; route: Route }
   | { type: 'status'; state: 'idle' | 'working' }
@@ -162,7 +176,9 @@ export type ServerEvent =
   /** A check failed: one more try, one effort level up. */
   | { type: 'retry'; route: Route; reason: string }
   /** A big task: show the estimate and wait for a 'confirm' answer. */
-  | { type: 'confirm'; id: string; route: Route; estimate: CostEstimate; spend: SpendSummary }
+  | { type: 'confirm'; id: string; kind: 'cost'; route: Route; estimate: CostEstimate; spend: SpendSummary }
+  /** A registry skill fits the request: offer to add it to the project first. */
+  | { type: 'confirm'; id: string; kind: 'skill'; skill: SkillOffer }
   /** The daily spending cap is reached: no new tasks today. */
   | { type: 'paused'; spend: SpendSummary }
   | { type: 'spend'; spend: SpendSummary };

@@ -9,6 +9,8 @@ import { runMock } from './mockAgent.js';
 import { buildPrompt, retryPrompt } from './prompt.js';
 import { EFFORT_LABELS, routeTask, shiftEffort } from './router.js';
 import { RouterLog, type Attempt } from './routerLog.js';
+import { sourceUrl } from './github.js';
+import { declineSkill, installSkill, skillsForTask, suggestSkill } from './skills.js';
 import type {
   AgentKind,
   ChatEntry,
@@ -36,6 +38,8 @@ export interface SessionOptions {
   ledger?: SpendLedger;
   /** Runs Claude for one attempt; replaced in tests and benchmarks. */
   runClaude?: (ctx: AgentContext, req: AgentRequest) => Promise<AgentResult>;
+  /** What was asked for when the app was created, put in the message box. */
+  draft?: string;
 }
 
 const MAX_HISTORY = 200;
@@ -45,6 +49,9 @@ const CONFIRM_TIMEOUT_MS = 10 * 60_000;
 const CHECK_NAMES: Record<CheckResult['check'], string> = { page: 'page', typecheck: 'type', build: 'build' };
 
 const money = (usd: number) => `$${usd > 0 && usd < 0.01 ? usd.toFixed(3) : usd.toFixed(2)}`;
+
+type ConfirmEvent = Extract<ServerEvent, { type: 'confirm' }>;
+type AskPayload = ConfirmEvent extends infer E ? (E extends ConfirmEvent ? Omit<E, 'type' | 'id'> : never) : never;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
@@ -64,7 +71,9 @@ export class Session {
   private lastUndone = false;
   private claudeSession: string | undefined;
   private pageErrors: string[] = [];
-  private pendingConfirm: { event: Extract<ServerEvent, { type: 'confirm' }>; answer: (ok: boolean) => void } | null = null;
+  private pendingConfirm: { event: ConfirmEvent; answer: (ok: boolean) => void } | null = null;
+  /** What was asked for when the app was created: shown in the message box until the first message. */
+  private draft: string | undefined;
   /** Whether the dev server stamps data-hivebubble-src on elements (set once it has started). */
   sourceTags = false;
 
@@ -72,6 +81,7 @@ export class Session {
     this.checkpoints = new Checkpoints(opts.cwd);
     this.routerLog = new RouterLog(opts.cwd);
     this.ledger = opts.ledger ?? new SpendLedger();
+    this.draft = opts.draft?.trim() || undefined;
   }
 
   spend(): SpendSummary {
@@ -89,6 +99,7 @@ export class Session {
       history: this.history,
       sourceTags: this.sourceTags,
       spend: this.spend(),
+      draft: this.draft,
     });
     // A reloaded page still gets the open question.
     if (this.pendingConfirm) this.send(ws, this.pendingConfirm.event);
@@ -150,8 +161,13 @@ export class Session {
   }
 
   private askToConfirm(route: Route, estimate: CostEstimate, spend: SpendSummary): Promise<boolean> {
+    return this.ask({ kind: 'cost', route, estimate, spend });
+  }
+
+  /** Ask the bubble a yes/no question and wait (a reloaded page gets it again; Stop says no). */
+  private ask(question: AskPayload): Promise<boolean> {
     return new Promise((resolve) => {
-      const event = { type: 'confirm' as const, id: randomUUID(), route, estimate, spend };
+      const event = { type: 'confirm' as const, id: randomUUID(), ...question } as ConfirmEvent;
       const timer = setTimeout(() => answer(false), CONFIRM_TIMEOUT_MS);
       const answer = (ok: boolean) => {
         clearTimeout(timer);
@@ -187,6 +203,7 @@ export class Session {
       emptyProject: this.opts.isEmpty?.() ?? false,
     });
     this.lastUndone = false;
+    this.draft = undefined;
     this.remember({ role: 'user', text, route });
     this.broadcast({ type: 'user', text, route });
     this.opts.log(`Task (${route.label} · ${route.effort} effort · ${route.signals.join(', ') || 'no signals'}): ${text}`);
@@ -208,6 +225,25 @@ export class Session {
       return this.finishEarly(
         `Paused for today: Claude has cost ${money(spend.todayUsd)} today, which reaches your daily limit of ${money(spend.dailyCapUsd)}. Raise the limit in the Hivebubble app, or come back tomorrow.`,
       );
+    }
+    // A reviewed registry skill that fits this request: offer it once (README §8).
+    const offer = claude ? suggestSkill(this.opts.cwd, route, text) : null;
+    if (offer) {
+      const yes = await this.ask({
+        kind: 'skill',
+        skill: { id: offer.id, title: offer.title, description: offer.description, author: offer.author, license: offer.license, verified: offer.verified, url: sourceUrl(offer.source) },
+      });
+      if (yes) {
+        try {
+          await installSkill(this.opts.cwd, offer.id, text);
+          this.say(`Added the ${offer.title} skill to this project.`);
+          this.opts.log(`Added the ${offer.title} skill (${offer.source.repo} @ ${offer.source.sha.slice(0, 7)}).`);
+        } catch (err) {
+          this.say(`Couldn't add the ${offer.title} skill (${err instanceof Error ? err.message : String(err)}). Carrying on without it.`);
+        }
+      } else {
+        declineSkill(this.opts.cwd, offer.id);
+      }
     }
     if (claude && (route.effort === 'xhigh' || route.effort === 'max')) {
       const estimate = estimateCost(route.effort, this.routerLog.costs(route.effort));
@@ -254,6 +290,7 @@ export class Session {
               resume: this.claudeSession,
               // Never more than the task's cap, or than what's left of today's limit.
               maxBudgetUsd: Math.max(0.05, Math.min(taskCap - spent, spend.remainingUsd - spent)),
+              skills: skillsForTask(this.opts.cwd, route, text),
             });
       if (result.sessionId) this.claudeSession = result.sessionId;
       spent += result.costUsd ?? 0;

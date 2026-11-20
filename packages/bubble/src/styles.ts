@@ -70,6 +70,8 @@ header { display: flex; align-items: center; gap: 8px; padding: 12px 12px 12px 1
 .card button { border: 1px solid var(--line); background: var(--paper); border-radius: 8px; padding: 5px 12px; font-size: 13px; }
 .card button.primary { background: var(--ink); border-color: var(--ink); color: var(--paper); }
 .card button:disabled { opacity: .45; cursor: default; }
+.card .actions { align-items: center; }
+.card .actions a { margin-left: auto; font-size: 12px; color: var(--honey-ink); }
 .chip.spend { background: rgba(31,26,20,.06); color: var(--muted); cursor: default; }
 .chip.spend.off { background: rgba(180,35,24,.1); color: var(--error); }
 .think[aria-pressed="true"] { background: var(--honey-tint); color: var(--honey-ink); border-color: rgba(242,167,27,.5); }

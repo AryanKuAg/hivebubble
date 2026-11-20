@@ -226,12 +226,68 @@ fn set_daily_cap(usd: f64) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn pick_folder(app: AppHandle) -> Option<String> {
-    app.dialog().file().set_title("Choose your project folder").blocking_pick_folder().map(|p| p.to_string())
+async fn pick_folder(app: AppHandle, title: Option<String>) -> Option<String> {
+    let title = title.unwrap_or_else(|| "Choose your project folder".into());
+    app.dialog().file().set_title(title).blocking_pick_folder().map(|p| p.to_string())
+}
+
+/// Run one of the engine's own subcommands (`skills`, `starters`, `new`) with
+/// `--json` and return its output. Nothing else can be run through here.
+fn engine_cli(args: &[String], cwd: Option<&Path>) -> Result<String, String> {
+    let first = args.first().map(String::as_str).unwrap_or("");
+    if !matches!(first, "skills" | "starters" | "new") {
+        return Err(format!("Not an engine command: {first}"));
+    }
+    let path = login_path();
+    let node = find_node(&path).ok_or("Node.js isn't installed. Install it from nodejs.org, then reopen Hivebubble.")?;
+    let core = core_script();
+    let mut cmd = Command::new(node);
+    cmd.arg(&core).args(args).arg("--json").env("PATH", &path).stdin(Stdio::null());
+    if let Some(dir) = cwd {
+        cmd.current_dir(dir);
+    }
+    let out = cmd.output().map_err(|e| format!("Couldn't run the engine: {e}"))?;
+    let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    // Errors come back as {"error": "..."} on stdout.
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&stdout) {
+        if let Some(err) = value.get("error").and_then(|e| e.as_str()) {
+            return Err(err.to_string());
+        }
+    }
+    if out.status.success() {
+        Ok(stdout)
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+    }
 }
 
 #[tauri::command]
-fn start_project(app: AppHandle, state: State<AppState>, project: String, demo: bool) -> Result<(), String> {
+fn run_cli(args: Vec<String>) -> Result<String, String> {
+    engine_cli(&args, None)
+}
+
+/// "Start something new": pick a starter for the request and create the app
+/// in a new folder inside `parent`.
+#[tauri::command]
+fn create_project(parent: String, what: String) -> Result<String, String> {
+    let parent = PathBuf::from(&parent);
+    if !parent.is_dir() {
+        return Err("Choose an existing folder to create the app in.".into());
+    }
+    engine_cli(&["new".to_string(), "--for".to_string(), what], Some(&parent))
+}
+
+/// Skills link to their files on GitHub; nothing else opens from here.
+#[tauri::command]
+fn open_link(app: AppHandle, url: String) -> Result<(), String> {
+    if !url.starts_with("https://github.com/") {
+        return Err("Hivebubble only opens GitHub links here.".into());
+    }
+    app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn start_project(app: AppHandle, state: State<AppState>, project: String, demo: bool, prompt: Option<String>) -> Result<(), String> {
     stop_running(&state);
     if !Path::new(&project).join("package.json").is_file() {
         return Err("That folder has no package.json. Choose the folder of a JavaScript web project.".into());
@@ -256,6 +312,9 @@ fn start_project(app: AppHandle, state: State<AppState>, project: String, demo: 
         cmd.arg("--mock-agent");
     } else if let Some(key) = stored_key() {
         cmd.env("ANTHROPIC_API_KEY", key);
+    }
+    if let Some(prompt) = prompt.filter(|p| !p.trim().is_empty()) {
+        cmd.arg("--prompt").arg(prompt);
     }
     let mut child = cmd.spawn().map_err(|e| format!("Couldn't start the engine: {e}"))?;
 
@@ -322,6 +381,9 @@ fn main() {
             get_settings,
             get_spending,
             set_daily_cap,
+            run_cli,
+            create_project,
+            open_link,
             save_api_key,
             clear_api_key,
             pick_folder,

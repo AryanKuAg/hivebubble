@@ -15,6 +15,8 @@ const { Checkpoints } = await import('./checkpoints.js');
 const { RouterLog } = await import('./routerLog.js');
 const { Checker, parseTscErrors, typecheckConfigs, viteErrorMessage } = await import('./checks.js');
 const { Session } = await import('./session.js');
+const { declineSkill } = await import('./skills.js');
+const { skillRegistry } = await import('./registry.js');
 type AgentRequest = import('./agent.js').AgentRequest;
 type ServerEvent = import('./types.js').ServerEvent;
 
@@ -173,6 +175,8 @@ describe('session (with a fake dev server and a fake Claude)', () => {
   function setup(script: (call: number, req: AgentRequest) => string, opts: { spentToday?: number } = {}) {
     const ledger = new SpendLedger(path.join(tempDir(), 'spend.json'));
     if (opts.spentToday) ledger.add(opts.spentToday);
+    // These tests are about cost and checks: no registry skill offers (M4 tests cover those).
+    for (const s of skillRegistry()) declineSkill(dir, s.id);
     const calls: AgentRequest[] = [];
     const info = { dir, name: 't', framework: 'vite' as const, packageManager: 'npm' as const, devScript: 'dev', devScriptCommand: 'vite', needsInstall: false };
     const session = new Session({
@@ -246,7 +250,7 @@ describe('session (with a fake dev server and a fake Claude)', () => {
   it('asks before a big task, with an estimate', async () => {
     const { session, events, calls } = setup(() => 'export const Hero = () => "Booking";\n');
     const declined = session.handle({ type: 'chat', text: 'make me a booking app for my salon' });
-    const ask = (await waitFor(events, 'confirm')) as Extract<ServerEvent, { type: 'confirm' }>;
+    const ask = (await waitFor(events, 'confirm')) as Extract<ServerEvent, { type: 'confirm'; kind: 'cost' }>;
     assert.equal(ask.route.effort, 'xhigh');
     assert.equal(ask.estimate.basis, 'typical');
     await session.handle({ type: 'confirm', id: ask.id, ok: false });
@@ -254,7 +258,7 @@ describe('session (with a fake dev server and a fake Claude)', () => {
     assert.equal(calls.length, 0);
     events.length = 0;
     const accepted = session.handle({ type: 'chat', text: 'make me a booking app for my salon' });
-    const ask2 = (await waitFor(events, 'confirm')) as Extract<ServerEvent, { type: 'confirm' }>;
+    const ask2 = (await waitFor(events, 'confirm')) as Extract<ServerEvent, { type: 'confirm'; kind: 'cost' }>;
     await session.handle({ type: 'confirm', id: ask2.id, ok: true });
     await accepted;
     assert.deepEqual(calls.map((c) => c.route.effort), ['xhigh']);
