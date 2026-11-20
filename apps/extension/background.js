@@ -79,7 +79,8 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   (async () => {
     if (msg?.type === 'page' && sender.tab && sender.url && !fromExtensionPage) {
       // From the content script: the page's address comes from Chrome, not from the page.
-      const d = await decide(sender.url);
+      // Always a fresh look: this runs when a page loads, or when its bubble lost Hivebubble.
+      const d = await decide(sender.url, true);
       const engine = !d.preview && (d.auto || d.enabled) ? d.engine : null;
       return engine ? { engine: engine.base, token: engine.token, project: engine.project } : null;
     }

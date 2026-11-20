@@ -23,9 +23,28 @@ export function readConfig(script: Element | null): EngineConfig {
   return { origin: engine, token: /^[\w-]{16,128}$/.test(token) ? token : null };
 }
 
+/**
+ * A new pairing from the extension's content script (the hivebubble:paired
+ * event): JSON text, since objects don't cross from the extension's world.
+ */
+export function readPairing(detail: unknown): EngineConfig | null {
+  if (typeof detail !== 'string') return null;
+  try {
+    const { engine, token } = JSON.parse(detail) as { engine?: unknown; token?: unknown };
+    if (typeof engine !== 'string' || !LOCAL_ORIGIN.test(engine)) return null;
+    if (typeof token !== 'string' || !/^[\w-]{16,128}$/.test(token)) return null;
+    return { origin: engine, token };
+  } catch {
+    return null;
+  }
+}
+
 /** The engine's WebSocket address for this config. */
-export function socketUrl(config: EngineConfig, page: Location = location): string {
-  if (!config.origin) return `${page.protocol === 'https:' ? 'wss' : 'ws'}://${page.host}/__hivebubble/ws`;
+export function socketUrl(config: EngineConfig, page?: Pick<Location, 'protocol' | 'host'>): string {
+  if (!config.origin) {
+    const here = page ?? location;
+    return `${here.protocol === 'https:' ? 'wss' : 'ws'}://${here.host}/__hivebubble/ws`;
+  }
   const base = config.origin.replace(/^http/, 'ws');
   return `${base}/__hivebubble/ws${config.token ? `?token=${encodeURIComponent(config.token)}` : ''}`;
 }

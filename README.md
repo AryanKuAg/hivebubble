@@ -55,7 +55,7 @@
   - **any other localhost site** gets it once you press *Add it* in the extension's popup, and keeps it;
   - Hivebubble's own preview is left alone, since it already has the bubble.
 
-  It pairs with Hivebubble by itself. Each time Hivebubble starts, it makes a secret that it gives only to this extension (Chrome marks the extension's requests with its ID, which a web page can't fake), and bubbles from other localhost pages must bring that secret.
+  It pairs with Hivebubble by itself. Each time Hivebubble starts, it makes a secret that it gives only to this extension (Chrome marks the extension's requests with its ID, which a web page can't fake), and bubbles from other localhost pages must bring that secret. When Hivebubble restarts, the bubble pairs again within a few seconds, without reloading the page.
 - **Attach to a dev server you already run** with `--attach http://localhost:3000`. Hivebubble then installs and starts nothing, and the extension adds the bubble to that site.
 
 **You need:** macOS, Windows or Linux, Node.js 20.19 or newer, pnpm 9, and your own Anthropic API key. For the desktop app you also need the Rust toolchain (and on Linux the WebKitGTK packages Tauri lists). The extension needs Chrome or another Chromium browser (Edge, Brave, Arc).
