@@ -41,6 +41,8 @@ struct Settings {
     core_found: bool,
     running: Option<String>,
     example: Option<String>,
+    /// Which hosting accounts are connected (no secrets).
+    hosts: serde_json::Value,
 }
 
 fn key_entry() -> Result<keyring::Entry, String> {
@@ -49,6 +51,55 @@ fn key_entry() -> Result<keyring::Entry, String> {
 
 fn stored_key() -> Option<String> {
     key_entry().ok()?.get_password().ok().filter(|k| !k.trim().is_empty())
+}
+
+/// Hosting accounts for the deploy wizard: one Keychain item per host. The
+/// engine gets them as the environment variables each host's API expects.
+const HOSTS: [(&str, &[&str]); 3] = [
+    ("vercel", &["VERCEL_TOKEN"]),
+    ("netlify", &["NETLIFY_AUTH_TOKEN"]),
+    ("cloudflare", &["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]),
+];
+
+fn host_entry(host: &str) -> Result<keyring::Entry, String> {
+    if !HOSTS.iter().any(|(h, _)| *h == host) {
+        return Err(format!("Unknown host: {host}"));
+    }
+    keyring::Entry::new(KEYCHAIN_SERVICE, &format!("host-{host}")).map_err(|e| e.to_string())
+}
+
+/// The saved values for a host, in the order of its environment variables.
+fn host_values(host: &str) -> Option<Vec<String>> {
+    let raw = host_entry(host).ok()?.get_password().ok()?;
+    let values: Vec<String> = serde_json::from_str(&raw).ok()?;
+    let (_, vars) = HOSTS.iter().find(|(h, _)| *h == host)?;
+    (values.len() == vars.len() && values.iter().all(|v| !v.trim().is_empty())).then_some(values)
+}
+
+#[tauri::command]
+fn save_host_token(host: String, token: String, account_id: Option<String>) -> Result<(), String> {
+    let token = token.trim().to_string();
+    if token.len() < 8 || token.len() > 512 || token.chars().any(char::is_whitespace) {
+        return Err("That doesn't look like a token. Copy it again from the host's token page.".into());
+    }
+    let mut values = vec![token];
+    if host == "cloudflare" {
+        let account = account_id.unwrap_or_default().trim().to_lowercase();
+        if account.len() != 32 || !account.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err("A Cloudflare account ID is 32 letters and digits. Copy it from the Workers & Pages overview.".into());
+        }
+        values.push(account);
+    }
+    let json = serde_json::to_string(&values).map_err(|e| e.to_string())?;
+    host_entry(&host)?.set_password(&json).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn clear_host_token(host: String) -> Result<(), String> {
+    match host_entry(&host)?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 /// Apps opened from Finder don't get the shell's PATH, so ask the login shell
@@ -150,6 +201,7 @@ fn get_settings(app: AppHandle, state: State<AppState>) -> Settings {
         core: core.to_string_lossy().into_owned(),
         running: state.running.lock().ok().and_then(|r| r.as_ref().map(|r| r.project.clone())),
         example: example.join("package.json").is_file().then(|| example.to_string_lossy().into_owned()),
+        hosts: serde_json::Value::Object(HOSTS.iter().map(|(h, _)| (h.to_string(), serde_json::Value::Bool(host_values(h).is_some()))).collect()),
     }
 }
 
@@ -316,6 +368,17 @@ fn start_project(app: AppHandle, state: State<AppState>, project: String, demo: 
     if let Some(prompt) = prompt.filter(|p| !p.trim().is_empty()) {
         cmd.arg("--prompt").arg(prompt);
     }
+    // Hosting accounts from the Keychain, for the deploy wizard.
+    for (host, vars) in HOSTS {
+        for var in vars {
+            cmd.env_remove(var);
+        }
+        if let Some(values) = host_values(host) {
+            for (var, value) in vars.iter().zip(values) {
+                cmd.env(var, value);
+            }
+        }
+    }
     let mut child = cmd.spawn().map_err(|e| format!("Couldn't start the engine: {e}"))?;
 
     if let Some(stdout) = child.stdout.take() {
@@ -384,6 +447,8 @@ fn main() {
             run_cli,
             create_project,
             open_link,
+            save_host_token,
+            clear_host_token,
             save_api_key,
             clear_api_key,
             pick_folder,

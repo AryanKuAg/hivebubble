@@ -48,6 +48,34 @@ export interface SpendSummary {
   remainingUsd: number;
 }
 
+export type HostId = 'vercel' | 'netlify' | 'cloudflare';
+
+/** One card in the deploy wizard (README §9). */
+export interface HostCard {
+  id: HostId;
+  name: string;
+  bestFor: string;
+  freePlan: string;
+  steps: number;
+  time: string;
+  /** Environment variables (from the Keychain via the Mac app) the host needs. */
+  needs: string[];
+  tokenUrl: string;
+  connectSteps: string[];
+  domainSteps: string[];
+  connected: boolean;
+  recommended: boolean;
+  /** The address of the last deploy to this host. */
+  lastUrl?: string;
+}
+
+/** An environment variable the app reads, and whether a .env file sets it (values are never read). */
+export interface EnvNeed {
+  name: string;
+  set: boolean;
+  usedIn: string[];
+}
+
 /** A registry skill offered before a task (README §8). */
 export interface SkillOffer {
   id: string;
@@ -85,7 +113,10 @@ export type ClientMessage =
   | { type: 'undo'; force?: boolean }
   | { type: 'stop' }
   /** An error on the open page while a task runs (the "reload check"). */
-  | { type: 'page-error'; message: string; source?: string };
+  | { type: 'page-error'; message: string; source?: string }
+  /** Open the deploy wizard: which hosts are connected, what the app needs. */
+  | { type: 'deploy-info' }
+  | { type: 'deploy'; host: HostId };
 
 export type ToolAction = 'read' | 'search' | 'edit' | 'write' | 'other';
 
@@ -181,4 +212,21 @@ export type ServerEvent =
   | { type: 'confirm'; id: string; kind: 'skill'; skill: SkillOffer }
   /** The daily spending cap is reached: no new tasks today. */
   | { type: 'paused'; spend: SpendSummary }
+  | { type: 'deploy-info'; hosts: HostCard[]; env: EnvNeed[]; supported: boolean; why?: string }
+  | {
+      type: 'deploy';
+      host: HostId;
+      phase: 'build' | 'upload' | 'finalize' | 'live' | 'failed';
+      message: string;
+      done?: number;
+      total?: number;
+      file?: string;
+      url?: string;
+      adminUrl?: string;
+      /** The live URL as a QR code, for a phone. */
+      qrSvg?: string;
+      /** For a failed build: the end of its output. */
+      buildLog?: string;
+      durationMs?: number;
+    }
   | { type: 'spend'; spend: SpendSummary };

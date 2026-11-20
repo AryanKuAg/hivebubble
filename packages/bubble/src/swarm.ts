@@ -7,6 +7,7 @@ import type { PageWatcher } from './watch';
 
 type Point = { x: number; y: number };
 type CheckEvent = Extract<ServerEvent, { type: 'check' }>;
+type DeployEvent = Extract<ServerEvent, { type: 'deploy' }>;
 
 const CHECK_NAMES: Record<Check, string> = { page: 'Page', typecheck: 'Types', build: 'Build' };
 
@@ -211,6 +212,40 @@ export class Swarm {
     }
     step.holdUntil = performance.now() + 1200;
     if (this.inFlight() === 0) this.quietSince = performance.now();
+  }
+
+  /** Putting the site online is workbench work too: one bee carries each step's label (README §9). */
+  deploy(e: DeployEvent): void {
+    if (this.bees.length === 0) this.launch(SWARM_SIZE.medium);
+    const id = 'deploy';
+    let step = this.steps.get(id);
+    if (!step) {
+      this.setThinking(false);
+      const bee = this.nextBee();
+      if (bee.step) this.retire(bee.step);
+      const now = performance.now();
+      step = { id, event: { type: 'tool', id, phase: 'start', action: 'other', tool: 'deploy' }, bee, targets: [], bench: true, hop: 0, hopAt: now, fx: [], startedAt: now, ended: false, holdUntil: 0 };
+      this.steps.set(id, step);
+      bee.step = step;
+      bee.el.classList.remove('error', 'done', 'thinking');
+      if (!bee.flyer) this.takeOff(bee);
+      this.sendTo(bee, this.spotFor(bee));
+    }
+    const bee = step.bee;
+    const label = e.phase === 'upload' && e.file ? `Uploading ${e.file.split('/').pop()}` : e.message;
+    if (bee.step === step) {
+      bee.el.classList.toggle('building', e.phase === 'upload' || e.phase === 'build');
+      bee.el.classList.toggle('done', e.phase === 'live');
+      bee.el.classList.toggle('error', e.phase === 'failed');
+      this.setLabel(bee, e.phase === 'failed' ? 'Couldn’t put it online' : label.slice(0, 48));
+    }
+    if (e.phase !== 'upload' || !e.file) this.trayAdd(e.message.slice(0, 60), e.phase === 'upload' ? 'write' : 'other', true);
+    this.o.onActivity(label);
+    if (e.phase === 'live' || e.phase === 'failed') {
+      step.ended = true;
+      step.holdUntil = performance.now() + 1600;
+    }
+    this.ensureLoop();
   }
 
   /** The dev server's error overlay appeared (or went away): a bee turns amber and points at it. */

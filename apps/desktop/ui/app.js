@@ -27,6 +27,7 @@ async function refresh() {
   if (!s.core_found) $('node-status').textContent += ' · Engine not built: run pnpm build.';
   $('example').hidden = !s.example;
   $('example').dataset.path = s.example || '';
+  renderHosts(s.hosts || {});
 
   const list = $('recent');
   list.replaceChildren();
@@ -48,6 +49,61 @@ async function refresh() {
   $('recent-wrap').hidden = s.recent.length === 0;
   return s;
 }
+
+// ---- hosting accounts for the deploy wizard (Keychain) ----
+const HOST_NAMES = { vercel: 'Vercel', netlify: 'Netlify', cloudflare: 'Cloudflare' };
+
+function renderHosts(hosts) {
+  const list = $('hosts');
+  list.replaceChildren();
+  for (const [id, name] of Object.entries(HOST_NAMES)) {
+    const li = document.createElement('li');
+    const label = document.createElement('span');
+    label.textContent = name;
+    li.append(label);
+    if (hosts[id]) {
+      const ok = document.createElement('span');
+      ok.className = 'ok';
+      ok.textContent = '✓ Connected';
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'link';
+      remove.textContent = 'Remove';
+      remove.addEventListener('click', async () => {
+        await invoke('clear_host_token', { host: id });
+        $('host-msg').textContent = `${name} token removed.`;
+        void refresh();
+      });
+      const right = document.createElement('span');
+      right.append(ok, ' ', remove);
+      li.append(right);
+    } else {
+      const off = document.createElement('span');
+      off.className = 'muted small';
+      off.textContent = 'Not connected';
+      li.append(off);
+    }
+    list.append(li);
+  }
+}
+
+$('host-which').addEventListener('change', () => {
+  $('host-account').hidden = $('host-which').value !== 'cloudflare';
+});
+
+$('host-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const host = $('host-which').value;
+  try {
+    await invoke('save_host_token', { host, token: $('host-token').value, accountId: $('host-account').value || null });
+    $('host-token').value = '';
+    $('host-account').value = '';
+    $('host-msg').textContent = `${HOST_NAMES[host]} connected. Restart a running project to use it.`;
+  } catch (err) {
+    $('host-msg').textContent = String(err);
+  }
+  void refresh();
+});
 
 // ---- spending: the engine's ledger, added up with the local calendar ----
 const money = (usd) => `$${usd > 0 && usd < 0.01 ? usd.toFixed(3) : usd.toFixed(2)}`;

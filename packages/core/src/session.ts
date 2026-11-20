@@ -11,6 +11,9 @@ import { EFFORT_LABELS, routeTask, shiftEffort } from './router.js';
 import { RouterLog, type Attempt } from './routerLog.js';
 import { sourceUrl } from './github.js';
 import { declineSkill, installSkill, skillsForTask, suggestSkill } from './skills.js';
+import { deploySite, deploySupport, envNeeds, hostCards, type DeployOptions } from './deploy.js';
+import type { ProjectInfo } from './project.js';
+import type { HostId } from './types.js';
 import type {
   AgentKind,
   ChatEntry,
@@ -40,6 +43,10 @@ export interface SessionOptions {
   runClaude?: (ctx: AgentContext, req: AgentRequest) => Promise<AgentResult>;
   /** What was asked for when the app was created, put in the message box. */
   draft?: string;
+  /** The project, for the deploy wizard. */
+  info?: ProjectInfo;
+  /** Deploy settings for tests (fake Wrangler, fast polling, a fixed environment). */
+  deploy?: Omit<Partial<DeployOptions>, 'signal'>;
 }
 
 const MAX_HISTORY = 200;
@@ -135,6 +142,45 @@ export class Session {
         return this.undo(Boolean(msg.force));
       case 'chat':
         return this.chat(msg);
+      case 'deploy-info':
+        return this.deployInfo();
+      case 'deploy':
+        return this.deploy(msg.host);
+    }
+  }
+
+  private deployInfo(): void {
+    const info = this.opts.info;
+    if (!info) {
+      this.broadcast({ type: 'deploy-info', hosts: [], env: [], supported: false, why: 'Putting a site online needs a project Hivebubble started' });
+      return;
+    }
+    const env = this.opts.deploy?.env ?? process.env;
+    const why = deploySupport(info);
+    this.broadcast({ type: 'deploy-info', hosts: hostCards(info, env), env: envNeeds(info.dir), supported: !why, why: why ?? undefined });
+  }
+
+  /** A deploy is a task like any other: it blocks new messages, sends the bees out, and Stop cancels it. */
+  private async deploy(host: HostId): Promise<void> {
+    const info = this.opts.info;
+    if (!info) return;
+    if (this.busy || this.pendingConfirm) {
+      this.broadcast({ type: 'error', message: 'Wait for the current task to finish before putting the site online.' });
+      return;
+    }
+    this.busy = true;
+    this.abort = new AbortController();
+    this.broadcast({ type: 'status', state: 'working' });
+    try {
+      const url = await deploySite(info, host, (e) => this.broadcast(e), { ...this.opts.deploy, signal: this.abort.signal });
+      this.remember({ role: 'system', text: `The site is live at ${url}` });
+      this.opts.log(`Deployed to ${host}: ${url}`);
+    } catch (err) {
+      this.opts.log(`Deploying to ${host} didn't work: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}`);
+    } finally {
+      this.busy = false;
+      this.abort = null;
+      this.broadcast({ type: 'status', state: 'idle' });
     }
   }
 

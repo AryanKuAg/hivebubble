@@ -5,7 +5,10 @@ import { existsSync, readFileSync } from 'node:fs';
  * overriding variables that are already set. Only Hivebubble's own keys are
  * read, so a project's unrelated secrets never end up in Hivebubble.
  */
-export function loadEnvFiles(files: string[], allowed = /^(ANTHROPIC_API_KEY|HIVEBUBBLE_[A-Z_]+)$/): void {
+export function loadEnvFiles(
+  files: string[],
+  allowed = /^(ANTHROPIC_API_KEY|HIVEBUBBLE_[A-Z_]+|VERCEL_TOKEN|VERCEL_TEAM_ID|NETLIFY_AUTH_TOKEN|CLOUDFLARE_API_TOKEN|CLOUDFLARE_ACCOUNT_ID)$/,
+): void {
   for (const file of files) {
     if (!existsSync(file)) continue;
     for (const raw of readFileSync(file, 'utf8').split(/\r?\n/)) {

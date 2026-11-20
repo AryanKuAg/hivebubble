@@ -1,6 +1,7 @@
 import type { AgentKind, ChatEntry, CheckResult, Effort, Mode, PickedElement, Route, ServerEvent, SpendSummary } from '../../core/src/types';
 import { Connection } from './connection';
-import { BEE, BULB, CLOSE, HIVE, HIVE_ENTRANCE, PICK, SEND, STOP, UNDO } from './icons';
+import { DeployView } from './deployView';
+import { BEE, BULB, CLOSE, GLOBE, HIVE, HIVE_ENTRANCE, PICK, SEND, STOP, UNDO } from './icons';
 import { describeElement, startPicker } from './picker';
 import { SWARM_SIZE, Swarm } from './swarm';
 import { CSS } from './styles';
@@ -18,10 +19,12 @@ const TEMPLATE = `
     <header>
       <div class="brand">${HIVE}<span>Hivebubble</span><span class="chip agent" hidden></span><span class="chip spend" hidden></span></div>
       <span class="conn" hidden>Reconnecting…</span>
+      <button class="icon-btn online" type="button" title="Put it online" aria-label="Put it online">${GLOBE}</button>
       <button class="icon-btn undo" type="button" disabled title="Undo the last change">${UNDO}<span class="txt">Undo</span></button>
       <button class="icon-btn close" type="button" aria-label="Close chat">${CLOSE}</button>
     </header>
     <div class="banner" hidden></div>
+    <section class="deploy" aria-label="Put it online" hidden></section>
     <div class="messages" aria-live="polite"></div>
     <div class="composer">
       <div class="picked" hidden><span></span><small class="src"></small><button class="icon-btn unpick" type="button" aria-label="Remove picked element">${CLOSE}</button></div>
@@ -120,6 +123,32 @@ export function mount(): void {
       renderWorking();
     },
   });
+
+  // ---- the deploy wizard (README §9) ----------------------------------------
+  const composer = q<HTMLElement>('.composer');
+  const deployView = new DeployView(
+    q<HTMLElement>('.deploy'),
+    (msg) => connection.send(msg),
+    (text) => {
+      showChat();
+      textarea.value = text;
+      textarea.focus();
+    },
+    () => showChat(),
+  );
+  function showDeploy(): void {
+    setOpen(true);
+    q<HTMLElement>('.deploy').hidden = false;
+    messages.hidden = true;
+    composer.hidden = true;
+    deployView.open();
+  }
+  function showChat(): void {
+    q<HTMLElement>('.deploy').hidden = true;
+    messages.hidden = false;
+    composer.hidden = false;
+    scroll();
+  }
 
   // ---- rendering ---------------------------------------------------------
   const scroll = () => {
@@ -363,6 +392,14 @@ export function mount(): void {
       case 'spend':
         setSpend(e.spend);
         break;
+      case 'deploy-info':
+        deployView.setInfo(e);
+        break;
+      case 'deploy':
+        deployView.progress(e);
+        swarm.deploy(e);
+        if (e.phase === 'live' || e.phase === 'failed') swarm.finish();
+        break;
       case 'done': {
         swarm.finish();
         undoBtn.disabled = !e.canUndo;
@@ -460,6 +497,7 @@ export function mount(): void {
   sendBtn.addEventListener('click', send);
   undoBtn.addEventListener('click', () => connection.send({ type: 'undo' }));
   pickBtn.addEventListener('click', beginPick);
+  q<HTMLButtonElement>('.online').addEventListener('click', () => (q<HTMLElement>('.deploy').hidden ? showDeploy() : showChat()));
   thinkBtn.addEventListener('click', () => setThinkHarder(!thinkHarder));
   q<HTMLButtonElement>('.unpick').addEventListener('click', () => setPicked(null));
   shadow.querySelectorAll<HTMLButtonElement>('.modes button').forEach((b) =>

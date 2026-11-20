@@ -5,7 +5,7 @@
 
 ---
 
-## Try it (milestones M1 to M4)
+## Try it (milestones M1 to M5)
 
 **What works today:**
 - Open a JavaScript web project. Hivebubble installs its packages, starts its dev server and puts a chat bubble on the page at `http://localhost:4321`.
@@ -34,7 +34,14 @@
   - **From the registry:** reviewed skills can be added to a project. Each is pinned to a commit, with its license and the date it was read. Before a task, the router offers one that fits, once. During a task, only the skills it needs are switched on.
   - **The Skills screen** (Mac app) shows each skill's reason, version, license and files. It shows the diff before any update, and removes skills.
   - **The lock file** `.hivebubble/skills.lock` records where each skill came from and why.
-- The **Mac app** keeps your API key in the macOS Keychain, remembers recent projects and shows your spending and daily limit.
+- **Put it online** (the globe in the bubble's header). A wizard inside the bubble:
+  1. shows a card for **Vercel**, **Netlify** and **Cloudflare**, each with who it's best for, the free plan, the steps and the time. It recommends the host you used last, or Vercel;
+  2. connects the account: the Mac app keeps each host's token in the Keychain, and the card says how to make one;
+  3. lists the settings the app reads (`import.meta.env.X`, `process.env.X`) and warns about any that no `.env` file sets. It only reads names, never values;
+  4. builds the site on your Mac first, so a broken build never reaches the host. If the build fails, it shows the log, and one button hands it to the hive to fix;
+  5. uploads the files, with a progress bar per step and a bee on the workbench (Netlify and Cloudflare get only the files that changed);
+  6. shows the live address, a QR code for your phone and the steps to add your own domain. The next deploy updates the same site.
+- The **Mac app** keeps your API key and hosting tokens in the macOS Keychain, remembers recent projects and shows your spending and daily limit.
 
 **You need:** macOS, Node.js 20.19 or newer, pnpm 9, and your own Anthropic API key. For the Mac app you also need the Rust toolchain.
 
@@ -52,6 +59,9 @@ pnpm start path/to/your/project
 # A new app from a starter, then run it with your request waiting in the bubble
 pnpm new --for "a booking app for my salon"     # prints the command to start it
 
+# Hosting tokens for "Put it online" from the command line (the Mac app keeps them in the Keychain)
+echo "VERCEL_TOKEN=..." >> .env.local           # or NETLIFY_AUTH_TOKEN, or CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID
+
 # The Mac app (Tauri)
 pnpm desktop
 ```
@@ -60,8 +70,8 @@ pnpm desktop
 
 | Path | What it is |
 |---|---|
-| `packages/core` | The engine: project detection, dev-server runner, preview proxy, Smart Router, Claude Agent SDK runner, step locator (which lines and selectors each tool call touches), undo checkpoints, CLI |
-| `packages/bubble` | The in-page widget: chat, element picker, bee cursors and their effects (Shadow DOM, about 43 KB, 15 KB gzipped) |
+| `packages/core` | The engine: project detection, dev-server runner, preview proxy, Smart Router, Claude Agent SDK runner, step locator (which lines and selectors each tool call touches), undo checkpoints, deploys (`hosts.ts`, `deploy.ts`), CLI |
+| `packages/bubble` | The in-page widget: chat, element picker, bee cursors and their effects, the deploy wizard (Shadow DOM, about 65 KB, 21 KB gzipped) |
 | `packages/source-tags` | The dev-only transform that stamps `data-hivebubble-src="file:line:col"` on page elements, as a Vite plugin |
 | `plugin` | Hivebubble's own skills (house style, verify, explain), loaded as a Claude Code plugin |
 | `registry` | The curated skills and starters (`skills.json`, `starters.json`). New entries come by pull request |
@@ -72,7 +82,7 @@ pnpm desktop
 **How source tags work:** for a Vite project, Hivebubble writes `.hivebubble/vite.config.mjs`, which loads your own Vite config unchanged and adds the source-tags plugin. It then starts your dev script with `--config` pointing at that file. Your files are never edited, `npm run dev` on its own still uses only your config, production builds never see the tags, and `.hivebubble/` ignores itself in git. If the dev server won't start with them, Hivebubble starts it again without them. Set `HIVEBUBBLE_SOURCE_TAGS=0` to turn them off.
 
 **Tests:**
-- `pnpm test` builds everything and runs the unit tests of all three packages, including the router's test set of 30 prompts (`packages/core/bench/prompts.json`).
+- `pnpm test` builds everything and runs the unit tests of all three packages, including the router's test set of 30 prompts (`packages/core/bench/prompts.json`). The deploy tests run against local stand-ins for the Vercel and Netlify APIs, and one builds the example with Vite and deploys it through the bubble's session end to end.
 - `pnpm smoke` runs an end-to-end check while `pnpm demo` is running. It checks that the dev server serves tagged modules, a picked element's edit goes straight to its file and line, the page check passes, and Undo restores the file.
 - `pnpm bench` runs the router's test set with Claude, once at the router's effort and once at max effort, on fresh copies of the example, and grades each run with its "done" checks. It prints time, cost and pass rate per mode. Without `--yes` it only shows the plan and a rough cost; `--mock --yes` checks the pipeline for free.
 
@@ -86,6 +96,12 @@ pnpm desktop
 - The build check runs for Vite projects only (a build next to a running `next dev` would fight over `.next`), and there is no visual check yet. The router's LLM tie-breaker for unclear requests (§6) isn't built; unclear requests get balanced effort.
 - Cost estimates are a rough range until a project has a few finished tasks at that effort. The router's numbers in the benchmark need a real run with your API key, so none are published yet.
 - The registry is small to start: two skills and three starters, all for Vite and React. Finding skills beyond it (skills.sh, GitHub search) isn't built yet. Skills that need to run scripts can't, because the agent has no shell.
+- **Deploys:**
+  - They work for Vite projects, which build to static files. Next.js and apps with their own server can't be put online from the bubble yet (Railway or Render come later).
+  - Accounts connect with a token you paste, not by signing in (OAuth needs a registered app with each host).
+  - The Vercel and Netlify code follows each host's documented API and is tested against local stand-ins. Cloudflare goes through Wrangler (pinned to 4.158.0), whose config was checked with a dry run. No deploy to a real account runs in CI, because that needs a token.
+  - Settings the app reads go into the build only from your `.env` files. Hivebubble doesn't copy them into the host's dashboard.
+  - The custom-domain steps are written out, not yet illustrated.
 
 Everything below is the build plan (drafted 2026-11-20; facts about the Claude Agent SDK and similar tools were checked on that date, with sources at the end).
 
@@ -409,7 +425,7 @@ Every milestone ends with something you can film.
 | **M2** ✅ | Swarm cursors + picker | Cursors follow real tool events, and the picker attaches `file:line` | **The hero reel:** cursors building a page |
 | **M3** ✅ | Router v1 + undo + cost | Rules router, one retry on failure, checkpoints and Undo, cost meter and cap, a test set of 30 prompts | "Auto effort vs. always-max: same result, X× faster, Y× cheaper", with real numbers |
 | **M4** ✅ | Skills & starters | Registry, lock file, Skills screen, "new app from a starter" | "Empty folder to working booking app" timelapse |
-| **M5** | Deploy wizard | Vercel works end to end with illustrated steps, then Netlify and Cloudflare | "Localhost to a live URL in one click" |
+| **M5** ✅ | Deploy wizard | Vercel works end to end with illustrated steps, then Netlify and Cloudflare | "Localhost to a live URL in one click" |
 | **M6** | Users & Data | Read-only queries on Supabase and Postgres, a logs summary, safe writes | "I asked my app who signed up today" |
 | **M7** | Beyond the Mac | Windows and Linux builds, plus an optional Chrome extension that attaches to any localhost | Platform launch posts |
 

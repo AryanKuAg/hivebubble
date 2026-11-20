@@ -99,6 +99,24 @@
         <p id="key-msg" class="muted small" role="status"></p>
         <p class="small muted">Get a key at <span class="mono">platform.claude.com</span>. A Claude.ai subscription login can't be used in third-party apps.</p>
         <hr />
+        <h2>Hosting</h2>
+        <p class="small muted">Connect an account to put sites online from the bubble. Tokens stay in your Mac’s Keychain.</p>
+        <ul id="hosts" class="hosts-list"></ul>
+        <form id="host-form" class="host-form">
+          <label for="host-which" class="sr-only">Host</label>
+          <select id="host-which">
+            <option value="vercel">Vercel</option>
+            <option value="netlify">Netlify</option>
+            <option value="cloudflare">Cloudflare</option>
+          </select>
+          <label for="host-token" class="sr-only">Token</label>
+          <input id="host-token" type="password" placeholder="Paste a token" autocomplete="off" spellcheck="false" />
+          <label for="host-account" class="sr-only">Cloudflare account ID</label>
+          <input id="host-account" placeholder="Cloudflare account ID" autocomplete="off" spellcheck="false" hidden />
+          <button class="primary" type="submit">Save</button>
+        </form>
+        <p id="host-msg" class="muted small" role="status"></p>
+        <hr />
         <h2>Spending</h2>
         <p class="small" id="spend-today">Today: $0.00</p>
         <p class="small muted" id="spend-month">This month: $0.00</p>

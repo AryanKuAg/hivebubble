@@ -82,6 +82,7 @@ export async function startHivebubble(opts: StartOptions): Promise<Running> {
     apiKey: opts.apiKey,
     maxBudgetUsd: opts.maxBudgetUsd,
     draft: opts.draft,
+    info,
     log,
     checker,
     // Only page files count: a project with nothing but config gets built from the start.
