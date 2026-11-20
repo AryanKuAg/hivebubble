@@ -275,8 +275,7 @@ hivebubble/
 ├─ registry/          # skills.json, starters.json (community PRs welcome)
 ├─ skills/            # Hivebubble's own skills
 ├─ docs/diagrams/     # architecture + message-flow diagrams (diagram-design)
-├─ PLAN.md
-└─ README.md · LICENSE · CONTRIBUTING.md · CODE_OF_CONDUCT.md
+└─ README.md (this plan) · LICENSE · CONTRIBUTING.md · CODE_OF_CONDUCT.md
 ```
 
 ---
@@ -368,7 +367,7 @@ Every milestone ends with something you can film.
 
 ## 18. First-week checklist
 
-- [ ] Create the GitHub repo with a license, a README (pitch plus architecture diagram) and this plan.
+- [x] Create the GitHub repo and publish this plan as the README. Still to add: a license.
 - [ ] Scaffold the monorepo (pnpm + Turborepo) and a Tauri app that can open a folder.
 - [ ] **Spike 1:** a proxy that injects a "hello" bubble into a Next.js dev server page while hot reload keeps working.
 - [ ] **Spike 2:** an Agent SDK sidecar where one prompt edits a project file and hot reload shows it. Log every hook event.
