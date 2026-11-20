@@ -15,12 +15,22 @@ let selftest = false;
 let onStatus = null;
 
 function basename(p) {
-  return p.split('/').filter(Boolean).pop() || p;
+  return p.split(/[\\/]/).filter(Boolean).pop() || p;
 }
+
+/** Where secrets live on this computer, in words: long for sentences, short for labels. */
+const VAULTS = {
+  macos: ['your Mac’s Keychain', 'Keychain'],
+  windows: ['Windows Credential Manager', 'Credential Manager'],
+  linux: ['your system keyring', 'keyring'],
+};
+let vault = VAULTS.macos;
 
 async function refresh() {
   const s = await invoke('get_settings');
-  $('key-status').textContent = s.has_key ? 'Key saved in Keychain' : 'No key yet';
+  vault = VAULTS[s.os] || VAULTS.macos;
+  for (const span of document.querySelectorAll('[data-vault]')) span.textContent = vault[0];
+  $('key-status').textContent = s.has_key ? `Key saved in ${vault[1]}` : 'No key yet';
   $('key-status').classList.toggle('ok', s.has_key);
   $('clear-key').hidden = !s.has_key;
   $('node-status').textContent = s.node ? `Node.js: ${s.node}` : 'Node.js: not found. Install it from nodejs.org.';
@@ -476,7 +486,7 @@ $('key-form').addEventListener('submit', async (e) => {
 });
 $('clear-key').addEventListener('click', async () => {
   await invoke('clear_api_key');
-  $('key-msg').textContent = 'Key removed from Keychain.';
+  $('key-msg').textContent = `Key removed from ${vault[1]}.`;
   void refresh();
 });
 

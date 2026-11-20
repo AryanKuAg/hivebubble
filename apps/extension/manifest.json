@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Hivebubble",
+  "version": "0.1.0",
+  "description": "Puts the Hivebubble chat bubble on your localhost sites, so you can change them by talking.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2eZt9RAXjE5wN4lmR5DzM5XNYnI1I2PQ67blAAIZBwHdkbkUUBes7aRzRcy/VO+Iy7rX0f9Nm0tdGgKSfEJUumUw3bM0SpcNvLcrMJqPt0X96jBTqZUB+qKl1eeY10FVq7DLID59lYf7yqAtqNRbz+KUPUq4KjDDvhmLCArFhUFesproNQ+PY82NhuALx4X43CNS5gQkCl68U/xYKsQM9q8bGkte7GRRCV/v5ci+nT55ZkNsccYVhfq/afVyQ0EIp8kdhF2ovgDyQVCXl5J8uUDj3HXEJ/1DlWjRng2rrOwsDtytEd0I+RRcSABa1Ijf64mYGrBum5Iggkid1j3iTwIDAQAB",
+  "minimum_chrome_version": "120",
+  "icons": { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "128": "icons/128.png" },
+  "action": {
+    "default_title": "Hivebubble",
+    "default_popup": "popup.html",
+    "default_icon": { "16": "icons/16.png", "32": "icons/32.png" }
+  },
+  "background": { "service_worker": "background.js", "type": "module" },
+  "content_scripts": [
+    {
+      "matches": ["http://localhost/*", "http://127.0.0.1/*", "http://*.localhost/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": ["storage"],
+  "host_permissions": ["http://localhost/*", "http://127.0.0.1/*", "http://*.localhost/*"]
+}

@@ -85,7 +85,7 @@
         </section>
         <section class="db" aria-labelledby="db-title">
           <h3 id="db-title">Users &amp; Data</h3>
-          <p class="small muted">Connect this project’s database to ask about your users from the bubble. Paste its connection string (in Supabase: Connect, then Session pooler). It’s kept in your Mac’s Keychain.</p>
+          <p class="small muted">Connect this project’s database to ask about your users from the bubble. Paste its connection string (in Supabase: Connect, then Session pooler). It’s kept in <span data-vault>your Mac’s Keychain</span>.</p>
           <p id="db-status" class="small"></p>
           <form id="db-form" class="db-form">
             <label for="db-url" class="sr-only">Database connection string</label>
@@ -100,7 +100,7 @@
       <!-- Settings -->
       <aside class="card side">
         <h2>Claude</h2>
-        <p class="muted">Hivebubble uses your own Anthropic API key. It's stored in your Mac's Keychain and only sent to Anthropic.</p>
+        <p class="muted">Hivebubble uses your own Anthropic API key. It's stored in <span data-vault>your Mac’s Keychain</span> and only sent to Anthropic.</p>
         <p id="key-status" class="pill">Checking…</p>
         <form id="key-form">
           <label for="key" class="sr-only">Anthropic API key</label>
@@ -112,7 +112,7 @@
         <p class="small muted">Get a key at <span class="mono">platform.claude.com</span>. A Claude.ai subscription login can't be used in third-party apps.</p>
         <hr />
         <h2>Hosting</h2>
-        <p class="small muted">Connect an account to put sites online from the bubble. Tokens stay in your Mac’s Keychain.</p>
+        <p class="small muted">Connect an account to put sites online from the bubble. Tokens stay in <span data-vault>your Mac’s Keychain</span>.</p>
         <ul id="hosts" class="hosts-list"></ul>
         <form id="host-form" class="host-form">
           <label for="host-which" class="sr-only">Host</label>

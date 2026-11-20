@@ -26,6 +26,8 @@ Options:
   --max-budget <usd>  Spending limit for one task (default: the saved setting, $2)
   --daily-cap <usd>   Pause once Claude has cost this much today (default: the saved setting, $5)
   --prompt <text>     Put this request in the bubble's message box
+  --attach <url>      Use a dev server you already run (e.g. http://localhost:3000)
+                      instead of starting one; the browser extension adds the bubble to it
   --no-open           Don't open the browser
   --json              Print machine-readable output (used by the Mac app)
   --exit-with-stdin   Stop when stdin closes (used by the Mac app)
@@ -46,6 +48,7 @@ function run(): void {
       'max-budget': { type: 'string' },
       'daily-cap': { type: 'string' },
       prompt: { type: 'string' },
+      attach: { type: 'string' },
       'no-open': { type: 'boolean', default: false },
       json: { type: 'boolean', default: false },
       'exit-with-stdin': { type: 'boolean', default: false },
@@ -96,6 +99,7 @@ function run(): void {
     apiKey: process.env.ANTHROPIC_API_KEY,
     maxBudgetUsd: values['max-budget'] ? Number(values['max-budget']) : undefined,
     draft: values.prompt,
+    attach: values.attach,
     reporter,
   })
     .then((r) => {
@@ -192,7 +196,7 @@ function freeFolder(base: string): string {
 function openBrowser(url: string): void {
   const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open';
   const args = process.platform === 'win32' ? ['/c', 'start', '', url] : [url];
-  spawn(cmd, args, { stdio: 'ignore', detached: true }).on('error', () => undefined).unref();
+  spawn(cmd, args, { stdio: 'ignore', detached: true, windowsHide: true }).on('error', () => undefined).unref();
 }
 
 const [first, ...rest] = process.argv.slice(2);

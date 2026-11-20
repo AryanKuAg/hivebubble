@@ -98,7 +98,7 @@ export class DeployView {
 
     // 2. Connect.
     if (host.connected) {
-      this.body.append(this.step('connect', '2. Your account is connected', el('p', 'muted', `Hivebubble uses the ${host.name} token from your Keychain.`)));
+      this.body.append(this.step('connect', '2. Your account is connected', el('p', 'muted', `Hivebubble uses your saved ${host.name} token.`)));
     } else {
       const list = el('ol', 'mini');
       for (const s of host.connectSteps) list.append(el('li', '', s));

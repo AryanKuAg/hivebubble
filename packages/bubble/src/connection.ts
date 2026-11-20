@@ -1,4 +1,5 @@
 import type { ClientMessage, ServerEvent } from '../../core/src/types';
+import { socketUrl, type EngineConfig } from './config';
 
 /** WebSocket to the Hivebubble engine, with automatic reconnects (the dev server can restart). */
 export class Connection {
@@ -9,13 +10,13 @@ export class Connection {
   constructor(
     private readonly onEvent: (event: ServerEvent) => void,
     private readonly onState: (open: boolean) => void,
+    private readonly config: EngineConfig = { origin: null, token: null },
   ) {
     this.open();
   }
 
   private open(): void {
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${proto}://${location.host}/__hivebubble/ws`);
+    const ws = new WebSocket(socketUrl(this.config));
     this.ws = ws;
     ws.onopen = () => {
       this.attempts = 0;

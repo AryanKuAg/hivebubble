@@ -1,7 +1,28 @@
+import { timingSafeEqual } from 'node:crypto';
 import http from 'node:http';
 import net from 'node:net';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { BUBBLE_PATH, STRIPPED_HTML_HEADERS, WS_PATH, injectBubble } from './inject.js';
+
+export const PAIR_PATH = '/__hivebubble/pair';
+
+/**
+ * The Hivebubble browser extension's ID. Its manifest carries the public key
+ * this ID comes from, so every unpacked copy has it. A build published under
+ * another ID is added with HIVEBUBBLE_EXTENSION_IDS (comma separated).
+ */
+export const EXTENSION_ID = 'eooocceknjjdpfdbcgakcdmofbnmbdmb';
+
+export function extensionIds(env: NodeJS.ProcessEnv = process.env): string[] {
+  const extra = (env.HIVEBUBBLE_EXTENSION_IDS ?? '').split(',').map((s) => s.trim()).filter((s) => /^[a-p]{32}$/.test(s));
+  return [EXTENSION_ID, ...extra];
+}
+
+export interface Pairing {
+  /** A secret made when the engine starts; the extension hands it to the bubbles it adds. */
+  token: string;
+  extensionIds: string[];
+}
 
 export interface ProxyOptions {
   /** The dev server port, or null while it is still starting. */
@@ -9,6 +30,8 @@ export interface ProxyOptions {
   bubbleJs: () => string;
   onClient: (ws: WebSocket) => void;
   health: () => Record<string, unknown>;
+  /** Lets the browser extension add bubbles to other localhost pages. */
+  pairing?: Pairing;
 }
 
 const STARTING_PAGE = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="1.5">
@@ -26,17 +49,40 @@ export function isLocalHost(host: string | undefined): boolean {
   return name === 'localhost' || name.endsWith('.localhost') || name === '127.0.0.1' || name === '[::1]';
 }
 
+/** A page on this machine: http(s)://localhost, 127.0.0.1, [::1] or *.localhost, any port. */
+export function isLocalOrigin(origin: string | undefined): boolean {
+  const m = /^https?:\/\/([^/]+)$/.exec(origin ?? '');
+  return Boolean(m && isLocalHost(m[1]));
+}
+
+function sameSecret(given: string, expected: string): boolean {
+  const a = Buffer.from(given);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 /**
  * The bubble's socket can change the project and read its data, so only the
  * page Hivebubble serves may open it. Browsers always send Origin on a
  * WebSocket handshake, so another site's page is refused. Local programs
- * that send no Origin are allowed: they can read the files anyway.
+ * that send no Origin are allowed: they can read the files anyway. A bubble
+ * the browser extension added to another localhost page brings the pairing
+ * token, which only the extension can get.
  */
-export function allowBubbleSocket(req: http.IncomingMessage): boolean {
+export function allowBubbleSocket(req: http.IncomingMessage, token?: string): boolean {
   const host = req.headers.host;
   if (!isLocalHost(host)) return false;
   const origin = req.headers.origin;
-  return origin === undefined || origin === `http://${host}`;
+  if (origin === undefined || origin === `http://${host}`) return true;
+  if (!token || !isLocalOrigin(origin)) return false;
+  const given = new URL(req.url ?? '/', 'http://x').searchParams.get('token');
+  return given !== null && sameSecret(given, token);
+}
+
+/** The extension that may fetch the pairing token, from the request's Origin; null for anything else. */
+export function extensionOrigin(req: http.IncomingMessage, ids: string[]): string | null {
+  const m = /^chrome-extension:\/\/([a-p]{32})$/.exec(req.headers.origin ?? '');
+  return m && ids.includes(m[1]) ? m[0] : null;
 }
 
 function refuse(socket: { write: (s: string) => unknown; destroy: () => unknown }): void {
@@ -68,6 +114,19 @@ export function createProxy(opts: ProxyOptions): http.Server {
     if (url === '/__hivebubble/health') {
       res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
       res.end(JSON.stringify(opts.health()));
+      return;
+    }
+    if (url === PAIR_PATH) {
+      // Only the Hivebubble extension gets the token: a web page can't send another Origin.
+      // POST, because Chrome leaves Origin off an extension's GET requests.
+      const ext = opts.pairing && req.method === 'POST' ? extensionOrigin(req, opts.pairing.extensionIds) : null;
+      if (!ext || !opts.pairing) {
+        res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' });
+        res.end('Only the Hivebubble browser extension can pair.');
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store', 'access-control-allow-origin': ext, vary: 'Origin' });
+      res.end(JSON.stringify({ ...opts.health(), token: opts.pairing.token }));
       return;
     }
 
@@ -119,7 +178,7 @@ export function createProxy(opts: ProxyOptions): http.Server {
   server.on('upgrade', (req, socket, head) => {
     const url = req.url ?? '/';
     if (url === WS_PATH || url.startsWith(`${WS_PATH}?`)) {
-      if (!allowBubbleSocket(req)) return refuse(socket);
+      if (!allowBubbleSocket(req, opts.pairing?.token)) return refuse(socket);
       wss.handleUpgrade(req, socket, head, (ws) => opts.onClient(ws));
       return;
     }

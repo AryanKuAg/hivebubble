@@ -3,9 +3,26 @@ import net from 'node:net';
 import readline from 'node:readline';
 import type { CommandSpec } from './project.js';
 
+/** An argument for cmd.exe: quoted when it has spaces or characters cmd treats specially. */
+function winQuote(arg: string): string {
+  if (arg === '') return '""';
+  return /[\s"&|<>^()%!,;=]/.test(arg) ? `"${arg.replace(/"/g, '\\"')}"` : arg;
+}
+
+/**
+ * How to start a command. On Windows, package managers and node_modules/.bin
+ * tools are .cmd files, which Node only runs through the shell (cmd.exe), so
+ * the command line is built and quoted here.
+ */
+export function platformSpawn(cmd: string, args: string[], platform: NodeJS.Platform = process.platform): { file: string; args: string[]; shell: boolean } {
+  if (platform !== 'win32') return { file: cmd, args, shell: false };
+  return { file: [cmd, ...args].map(winQuote).join(' '), args: [], shell: true };
+}
+
 /**
  * A child process in its own process group, so stopping it also stops what it
- * started (npm → vite, npm → next, …).
+ * started (npm → vite, npm → next, …). Windows has no process groups: there
+ * the whole tree is ended with taskkill.
  */
 export class ManagedProcess {
   readonly child: ChildProcess;
@@ -13,10 +30,13 @@ export class ManagedProcess {
   private alive = true;
 
   constructor(spec: CommandSpec, cwd: string, onLine: (line: string) => void) {
-    this.child = spawn(spec.cmd, spec.args, {
+    const run = platformSpawn(spec.cmd, spec.args);
+    this.child = spawn(run.file, run.args, {
       cwd,
       env: { ...process.env, ...spec.env, FORCE_COLOR: '0' },
       detached: process.platform !== 'win32',
+      shell: run.shell,
+      windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     for (const stream of [this.child.stdout, this.child.stderr]) {
@@ -52,8 +72,10 @@ export class ManagedProcess {
     const pid = this.child.pid;
     if (pid === undefined) return;
     try {
-      if (process.platform === 'win32') this.child.kill(sig);
-      else process.kill(-pid, sig);
+      if (process.platform === 'win32') {
+        // cmd.exe → npm → node: kill the whole tree, or the dev server keeps running.
+        spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }).on('error', () => this.child.kill(sig));
+      } else process.kill(-pid, sig);
     } catch {
       // Already gone.
     }

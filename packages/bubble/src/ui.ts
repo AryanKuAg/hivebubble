@@ -1,4 +1,5 @@
 import type { AgentKind, ChatEntry, CheckResult, Effort, Mode, PickedElement, Route, ServerEvent, SpendSummary } from '../../core/src/types';
+import type { EngineConfig } from './config';
 import { Connection } from './connection';
 import { DataView } from './dataView';
 import { DeployView } from './deployView';
@@ -68,7 +69,7 @@ const store = {
 
 const money = (usd: number) => `$${usd > 0 && usd < 0.01 ? usd.toFixed(3) : usd.toFixed(2)}`;
 
-export function mount(): void {
+export function mount(config: EngineConfig = { origin: null, token: null }): void {
   const host = document.createElement('hivebubble-root');
   document.documentElement.appendChild(host);
   const shadow = host.attachShadow({ mode: 'open' });
@@ -328,9 +329,13 @@ export function mount(): void {
   }
 
   // ---- connection --------------------------------------------------------
-  const connection = new Connection(onEvent, (open) => {
-    conn.hidden = open;
-  });
+  const connection = new Connection(
+    onEvent,
+    (open) => {
+      conn.hidden = open;
+    },
+    config,
+  );
 
   function onEvent(e: ServerEvent): void {
     switch (e.type) {

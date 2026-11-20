@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import type http from 'node:http';
 import { createRequire } from 'node:module';
@@ -7,7 +8,7 @@ import { DevErrorCatcher } from './logs.js';
 import { sourceFiles } from './mockAgent.js';
 import { ManagedProcess, findFreePort, waitForPort } from './processes.js';
 import { detectProject, devCommand, frameworkLabel, installCommand } from './project.js';
-import { createProxy } from './proxy.js';
+import { createProxy, extensionIds } from './proxy.js';
 import { Session } from './session.js';
 import { planSourceTags } from './sourceTags.js';
 import type { AgentKind } from './types.js';
@@ -29,7 +30,23 @@ export interface StartOptions {
   maxBudgetUsd?: number;
   /** A request to put in the bubble's message box (from creating the app). */
   draft?: string;
+  /** A dev server the person already runs, e.g. http://localhost:3000: nothing is installed or started. */
+  attach?: string;
   reporter: Reporter;
+}
+
+/** The dev server to attach to: http on this machine, with a port. */
+export function parseAttachUrl(raw: string): URL {
+  let url: URL;
+  try {
+    url = new URL(raw.includes('://') ? raw : `http://${raw}`);
+  } catch {
+    throw new Error(`"${raw}" isn't an address. Use one like http://localhost:3000.`);
+  }
+  if (url.protocol !== 'http:' || !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) || !url.port) {
+    throw new Error(`Hivebubble attaches to a dev server on this computer, like http://localhost:3000 (got ${raw}).`);
+  }
+  return url;
 }
 
 export interface Running {
@@ -54,6 +71,7 @@ function listen(server: http.Server, port: number): Promise<void> {
 
 export async function startHivebubble(opts: StartOptions): Promise<Running> {
   const r = opts.reporter;
+  const attach = opts.attach ? parseAttachUrl(opts.attach) : null;
   r.status('detecting', 'Reading the project…');
   const info = detectProject(opts.projectDir);
   const project = { name: info.name, framework: frameworkLabel(info.framework) };
@@ -94,11 +112,25 @@ export async function startHivebubble(opts: StartOptions): Promise<Running> {
   const devErrors = new DevErrorCatcher(session.errors);
 
   let stopping = false;
+  let preview = '';
+  // A new secret every run: the browser extension pairs again by itself.
+  const pairing = { token: randomBytes(24).toString('base64url'), extensionIds: extensionIds() };
   const server = createProxy({
     target: () => devPort,
     bubbleJs: () => readFileSync(bubbleFile, 'utf8'),
     onClient: (ws) => session.attach(ws),
-    health: () => ({ ok: true, project: info.name, framework: project.framework, devPort, agent, sourceTags: session.sourceTags }),
+    health: () => ({
+      ok: true,
+      project: info.name,
+      framework: project.framework,
+      devPort,
+      agent,
+      sourceTags: session.sourceTags,
+      preview,
+      // The person's own dev server: the browser extension adds the bubble there.
+      site: attach ? attach.origin : devPort ? `http://localhost:${devPort}` : null,
+    }),
+    pairing,
   });
   let proxyPort = await findFreePort(opts.port ?? 4321);
   for (let attempt = 0; ; attempt++) {
@@ -111,12 +143,30 @@ export async function startHivebubble(opts: StartOptions): Promise<Running> {
     }
   }
   const url = `http://localhost:${proxyPort}`;
+  preview = url;
 
   const cleanupServer = () => {
     session.stop();
     server.close();
     server.closeAllConnections();
   };
+
+  if (attach) {
+    // The person runs the dev server: nothing to install or start, and no source tags.
+    devPort = Number(attach.port);
+    r.log('hivebubble', `Attached to your dev server at ${attach.origin}. Hivebubble didn't start it, so source tags are off.`);
+    r.log('hivebubble', `Open ${attach.origin} with the Hivebubble browser extension to get the bubble there, or use ${url}.`);
+    r.status('ready', `Your site is live at ${url}`, { url, devPort, agent, project, sourceTags: false, spend: session.spend(), site: attach.origin });
+    checker.warmUp();
+    return {
+      url,
+      async stop() {
+        stopping = true;
+        cleanupServer();
+        r.status('stopped', 'Stopped.');
+      },
+    };
+  }
 
   if (info.needsInstall) {
     r.status('installing', `Installing packages with ${info.packageManager} (first run only)…`);

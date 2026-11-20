@@ -24,7 +24,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg"],
+    "targets": "all",
     "category": "DeveloperTool",
     "shortDescription": "Talk to your website, watch the hive build it.",
     "icon": [

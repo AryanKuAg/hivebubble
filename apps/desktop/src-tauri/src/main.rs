@@ -1,8 +1,10 @@
-// Hivebubble Mac app: a thin window around @hivebubble/core.
+// Hivebubble desktop app (macOS, Windows, Linux): a thin window around @hivebubble/core.
 //
-// The app picks a project folder, keeps the Anthropic API key in the macOS
-// Keychain, and runs the Node engine (`hivebubble --json`) as a child process.
-// Engine events arrive as JSON lines on stdout and are forwarded to the window.
+// The app picks a project folder, keeps secrets (the Anthropic API key, hosting
+// tokens, database connections) in the system's own store (the macOS Keychain,
+// Windows Credential Manager, or the Secret Service on Linux), and runs the Node
+// engine (`hivebubble --json`) as a child process. Engine events arrive as JSON
+// lines on stdout and are forwarded to the window.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -43,6 +45,8 @@ struct Settings {
     example: Option<String>,
     /// Which hosting accounts are connected (no secrets).
     hosts: serde_json::Value,
+    /// "macos", "windows" or "linux": the window names the right secret store.
+    os: &'static str,
 }
 
 fn key_entry() -> Result<keyring::Entry, String> {
@@ -138,8 +142,27 @@ fn has_db_url(project: String) -> bool {
     db_url(&project).is_some()
 }
 
-/// Apps opened from Finder don't get the shell's PATH, so ask the login shell
-/// once. That finds node and npm wherever they were installed (Homebrew, nvm, …).
+/// Windows: the PATH the app got is the user's own. Programs started from the
+/// app get no console window of their own.
+#[cfg(windows)]
+fn login_path() -> String {
+    std::env::var("PATH").unwrap_or_default()
+}
+
+#[cfg(windows)]
+fn no_console(cmd: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    cmd.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn no_console(_cmd: &mut Command) {}
+
+/// Apps opened from Finder or a Linux launcher don't get the shell's PATH, so ask
+/// the login shell once. That finds node and npm wherever they were installed
+/// (Homebrew, nvm, …).
+#[cfg(not(windows))]
 fn login_path() -> String {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
     let output = Command::new(shell)
@@ -161,15 +184,34 @@ fn login_path() -> String {
 }
 
 fn find_node(path: &str) -> Option<String> {
-    path.split(':')
-        .map(|dir| Path::new(dir).join("node"))
+    let exe = if cfg!(windows) { "node.exe" } else { "node" };
+    std::env::split_paths(&std::ffi::OsString::from(path))
+        .map(|dir| dir.join(exe))
         .find(|p| p.is_file())
         .map(|p| p.to_string_lossy().into_owned())
 }
 
+/// Windows' canonical paths start with \\?\, which Node turns into odd file URLs.
+fn plain_path(p: PathBuf) -> PathBuf {
+    match p.to_str().and_then(|s| s.strip_prefix(r"\\?\")) {
+        Some(rest) => PathBuf::from(rest),
+        None => p,
+    }
+}
+
 fn repo_root() -> PathBuf {
     let here = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
-    here.canonicalize().unwrap_or(here)
+    plain_path(here.canonicalize().unwrap_or(here))
+}
+
+/// The same folder Node's os.homedir() gives the engine.
+fn user_home() -> PathBuf {
+    let vars: &[&str] = if cfg!(windows) { &["USERPROFILE", "HOME"] } else { &["HOME"] };
+    vars.iter()
+        .filter_map(|v| std::env::var_os(v))
+        .find(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
 }
 
 /// v0.1 runs the engine from the repository checkout. A bundled Node runtime
@@ -238,6 +280,7 @@ fn get_settings(app: AppHandle, state: State<AppState>) -> Settings {
         running: state.running.lock().ok().and_then(|r| r.as_ref().map(|r| r.project.clone())),
         example: example.join("package.json").is_file().then(|| example.to_string_lossy().into_owned()),
         hosts: serde_json::Value::Object(HOSTS.iter().map(|(h, _)| (h.to_string(), serde_json::Value::Bool(host_values(h).is_some()))).collect()),
+        os: std::env::consts::OS,
     }
 }
 
@@ -266,7 +309,7 @@ fn hivebubble_home() -> PathBuf {
             return PathBuf::from(dir);
         }
     }
-    let home = std::env::var("HOME").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("."));
+    let home = user_home();
     if cfg!(target_os = "macos") {
         home.join("Library/Application Support/Hivebubble")
     } else {
@@ -331,6 +374,7 @@ fn engine_cli(args: &[String], cwd: Option<&Path>) -> Result<String, String> {
     let core = core_script();
     let mut cmd = Command::new(node);
     cmd.arg(&core).args(args).arg("--json").env("PATH", &path).stdin(Stdio::null());
+    no_console(&mut cmd);
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
     }
@@ -396,6 +440,7 @@ fn start_project(app: AppHandle, state: State<AppState>, project: String, demo: 
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    no_console(&mut cmd);
     if demo {
         cmd.arg("--mock-agent");
     } else if let Some(key) = stored_key() {

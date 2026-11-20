@@ -139,18 +139,24 @@ function normalize(message: string): string {
     .slice(0, 300);
 }
 
-const LOCATION = /(?:https?:\/\/[^/\s)]+)?(\/[^\s:?()'"]+?\.(?:[cm]?[jt]sx?|vue|svelte|astro|css|scss|html))(?:\?[^\s:)]*)?:(\d+)(?::\d+)?/g;
+// A path (POSIX, a URL path, or a Windows drive path) to a source file, then :line.
+const LOCATION = /(?:https?:\/\/[^/\s)]+)?((?:\/|[A-Za-z]:[\\/])[^\s:?()'"]+?\.(?:[cm]?[jt]sx?|vue|svelte|astro|css|scss|html))(?:\?[^\s:)]*)?:(\d+)(?::\d+)?/g;
 const RELATIVE = /["'(\s]((?:src|app|pages|components|lib)\/[^\s"'():]+\.(?:[cm]?[jt]sx?|vue|svelte|astro|css))(?::(\d+))?/g;
 
 /** The first place in the project an error points at. */
 export function codeLocation(text: string, projectDir: string): { file: string; line?: number } | null {
   const root = path.resolve(projectDir);
-  const inProject = (abs: string) => abs.startsWith(root + path.sep) && !abs.includes(`${path.sep}node_modules${path.sep}`) && !abs.includes(`${path.sep}.hivebubble${path.sep}`) && existsSync(abs);
+  // Windows paths compare without case (Vite may write c:/ for C:\).
+  const fold = (s: string) => (process.platform === 'win32' ? s.toLowerCase() : s);
+  const inProject = (abs: string) =>
+    fold(abs).startsWith(fold(root + path.sep)) && !/[\\/](?:node_modules|\.hivebubble)[\\/]/.test(abs) && existsSync(abs);
   for (const m of text.matchAll(LOCATION)) {
     let p = m[1];
     if (p.startsWith('/@fs/')) p = p.slice(4);
-    else if (p.startsWith('/@') || p.includes('/node_modules/')) continue;
-    const abs = p.startsWith(root + '/') ? p : path.join(root, p);
+    else if (p.startsWith('/@') || /[\\/]node_modules[\\/]/.test(p)) continue;
+    if (/^\/[A-Za-z]:\//.test(p)) p = p.slice(1); // /C:/Users/… from a file URL
+    // A file-system path inside the project, else a URL path the dev server serves from the project's root.
+    const abs = fold(p).startsWith(fold(root)) || /^[A-Za-z]:[\\/]/.test(p) ? path.resolve(p) : path.join(root, p);
     if (inProject(abs)) return { file: path.relative(root, abs).split(path.sep).join('/'), line: Number(m[2]) };
   }
   for (const m of text.matchAll(RELATIVE)) {

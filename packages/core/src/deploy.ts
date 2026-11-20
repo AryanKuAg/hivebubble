@@ -13,7 +13,7 @@ import type { EnvNeed, HostCard, HostId, ServerEvent } from './types.js';
  * The deploy wizard's engine (README §9): pick a host, check its account is
  * connected, check the environment variables the app reads, build locally,
  * upload with progress, then share the live URL and a QR code. Tokens come
- * from the environment: the Mac app passes them from the Keychain, and
+ * from the environment: the desktop app passes them from the system’s secret store, and
  * command-line users put them in Hivebubble's .env.local.
  */
 

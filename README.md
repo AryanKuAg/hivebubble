@@ -1,11 +1,11 @@
 # Hivebubble
 
 > **Talk to your website. Watch the hive build it.**
-> An open-source Mac app that puts a Claude-powered chat bubble on your localhost site, so anyone can build, deploy and run a custom web app without opening an editor or a terminal.
+> An open-source desktop app (macOS, Windows and Linux) that puts a Claude-powered chat bubble on your localhost site, so anyone can build, deploy and run a custom web app without opening an editor or a terminal.
 
 ---
 
-## Try it (milestones M1 to M6)
+## Try it (milestones M1 to M7)
 
 **What works today:**
 - Open a JavaScript web project. Hivebubble installs its packages, starts its dev server and puts a chat bubble on the page at `http://localhost:4321`.
@@ -22,36 +22,43 @@
   - Logins, payments, data, secrets and packages get careful effort and a build check. Asking for several things at once, or a failed or undone last attempt, moves the next task one level deeper.
   - A **Quick / Auto / Thorough** switch moves it down or up a level. **Think harder** is the only way to the deepest effort.
 - **Checks after every change, and one retry.** The dev server has to compile every changed file, and the open page must show no new errors from them. TypeScript projects also get a type check, and bigger tasks a production build (Vite). Errors that were there before the task don't count (Hivebubble checks types and the build once in the background when a project opens). If a check fails, the hive tries once more, one effort level deeper, with the error in hand. If that fails too, it says so plainly.
-- **Cost you can see and cap.** A live cost meter runs while Claude works. Big tasks show an estimate and wait for a yes. Hivebubble pauses for the day at a daily limit ($5 by default, set in the Mac app or with `--daily-cap`), and each task stays under a task limit ($2, `--max-budget`). The bubble and the Mac app show today's and this month's spending.
+- **Cost you can see and cap.** A live cost meter runs while Claude works. Big tasks show an estimate and wait for a yes. Hivebubble pauses for the day at a daily limit ($5 by default, set in the desktop app or with `--daily-cap`), and each task stays under a task limit ($2, `--max-budget`). The bubble and the desktop app show today's and this month's spending.
 - **Undo** reverts the last change, also after a restart. It won't silently overwrite edits made after the task: it asks first.
 - Every task is written to `.hivebubble/router-log.jsonl` (signals, effort, checks, cost, time, outcome, later undos). Estimates for big tasks come from it.
-- **Start something new.** Say what you want ("a booking app for my salon") on the Mac app's home screen, or run `pnpm new --for "…"`. Hivebubble:
+- **Start something new.** Say what you want ("a booking app for my salon") on the desktop app's home screen, or run `pnpm new --for "…"`. Hivebubble:
   - picks a starter (a working booking app, a small-business website, or Vite's blank React + TypeScript app);
   - copies it into a new folder without its git history, installs it and starts it;
   - waits with your request in the bubble, so Claude adapts the app to you.
 - **Skills.**
   - **Built in:** Hivebubble's own skills ship as a plugin and are always available: house style, what "done" means, and explaining changes in plain words.
   - **From the registry:** reviewed skills can be added to a project. Each is pinned to a commit, with its license and the date it was read. Before a task, the router offers one that fits, once. During a task, only the skills it needs are switched on.
-  - **The Skills screen** (Mac app) shows each skill's reason, version, license and files. It shows the diff before any update, and removes skills.
+  - **The Skills screen** (desktop app) shows each skill's reason, version, license and files. It shows the diff before any update, and removes skills.
   - **The lock file** `.hivebubble/skills.lock` records where each skill came from and why.
 - **Put it online** (the globe in the bubble's header). A wizard inside the bubble:
   1. shows a card for **Vercel**, **Netlify** and **Cloudflare**, each with who it's best for, the free plan, the steps and the time. It recommends the host you used last, or Vercel;
-  2. connects the account: the Mac app keeps each host's token in the Keychain, and the card says how to make one;
+  2. connects the account: the desktop app keeps each host's token in the system's secure storage, and the card says how to make one;
   3. lists the settings the app reads (`import.meta.env.X`, `process.env.X`) and warns about any that no `.env` file sets. It only reads names, never values;
-  4. builds the site on your Mac first, so a broken build never reaches the host. If the build fails, it shows the log, and one button hands it to the hive to fix;
+  4. builds the site on your computer first, so a broken build never reaches the host. If the build fails, it shows the log, and one button hands it to the hive to fix;
   5. uploads the files, with a progress bar per step and a bee on the workbench (Netlify and Cloudflare get only the files that changed);
   6. shows the live address, a QR code for your phone and the steps to add your own domain. The next deploy updates the same site.
 - **Users & Data** (the database button in the bubble's header), for Supabase and any Postgres:
   - **Ask in plain words**, like *"Who signed up this week?"*. The answer comes back as a sentence and a table, or bars for counts over time. *How I got this* shows the SQL, which you can edit and run again.
-  - **Claude never sees your data.** It gets your question and the names and types of your tables and columns; passwords and tokens are left out even there. The query then runs on your Mac, inside a read-only transaction, with a time limit and at most 500 rows back. Password and token columns show as "hidden".
+  - **Claude never sees your data.** It gets your question and the names and types of your tables and columns; passwords and tokens are left out even there. The query then runs on your computer, inside a read-only transaction, with a time limit and at most 500 rows back. Password and token columns show as "hidden".
   - **Change data safely.** Ask *"Give Priya pro access"* and Hivebubble shows exactly which rows would change, before → after, and waits. On **Make this change** it saves a backup of those rows to `.hivebubble/data/backups`, checks the rows still look like the preview, and changes them in one transaction. That transaction writes the values you saw to the rows you saw; no SQL written by Claude runs in it. Deleting more than one row needs the word "delete" typed. The **Changes** tab undoes any change from its backup, and asks first if the rows were edited again since.
   - **Logs:** errors from the page, the dev server and production builds, grouped and said in plain words, with the file they point at and a **Fix it** button that hands the error to the hive. For Supabase it also shows sign-ups and sign-ins from the last 7 days.
   - A switch hides emails and phone numbers on screen and in what **Fix it** sends, for screen recordings.
   - Demo mode answers a few fixed questions about users without Claude, and never changes data.
-- The bubble's connection only accepts the page Hivebubble serves: other websites, and pages that reach your Mac under another name (DNS rebinding), are refused.
-- The **Mac app** keeps your API key, hosting tokens and each project's database connection string in the macOS Keychain, remembers recent projects and shows your spending and daily limit.
+- The bubble's connection only accepts the page Hivebubble serves: other websites, and pages that reach your computer under another name (DNS rebinding), are refused.
+- The **desktop app** runs on macOS, Windows and Linux. It keeps your API key, hosting tokens and each project's database connection string in the system's own secure storage (the Keychain, Windows Credential Manager, or the Secret Service keyring on Linux), remembers recent projects and shows your spending and daily limit.
+- **The Chrome extension** (`apps/extension`) puts the bubble on localhost pages that Hivebubble doesn't serve:
+  - **your project's own dev server** (say `localhost:5173`) gets it by itself;
+  - **any other localhost site** gets it once you press *Add it* in the extension's popup, and keeps it;
+  - Hivebubble's own preview is left alone, since it already has the bubble.
 
-**You need:** macOS, Node.js 20.19 or newer, pnpm 9, and your own Anthropic API key. For the Mac app you also need the Rust toolchain.
+  It pairs with Hivebubble by itself. Each time Hivebubble starts, it makes a secret that it gives only to this extension (Chrome marks the extension's requests with its ID, which a web page can't fake), and bubbles from other localhost pages must bring that secret.
+- **Attach to a dev server you already run** with `--attach http://localhost:3000`. Hivebubble then installs and starts nothing, and the extension adds the bubble to that site.
+
+**You need:** macOS, Windows or Linux, Node.js 20.19 or newer, pnpm 9, and your own Anthropic API key. For the desktop app you also need the Rust toolchain (and on Linux the WebKitGTK packages Tauri lists). The extension needs Chrome or another Chromium browser (Edge, Brave, Arc).
 
 ```bash
 git clone https://github.com/AryanKuAg/hivebubble.git && cd hivebubble
@@ -67,15 +74,20 @@ pnpm start path/to/your/project
 # A new app from a starter, then run it with your request waiting in the bubble
 pnpm new --for "a booking app for my salon"     # prints the command to start it
 
-# Hosting tokens for "Put it online" from the command line (the Mac app keeps them in the Keychain)
+# Hosting tokens for "Put it online" from the command line (the desktop app keeps them in secure storage)
 echo "VERCEL_TOKEN=..." >> .env.local           # or NETLIFY_AUTH_TOKEN, or CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID
 
 # Users & Data reads DATABASE_URL (or POSTGRES_URL, SUPABASE_DB_URL) from your project's .env files
 echo "DATABASE_URL=postgresql://..." >> path/to/your/project/.env.local
 
-# The Mac app (Tauri)
+# Your own dev server is already running on port 3000: attach to it instead of starting one
+pnpm start path/to/your/project --attach http://localhost:3000
+
+# The desktop app (Tauri), on macOS, Windows or Linux
 pnpm desktop
 ```
+
+**The Chrome extension:** open `chrome://extensions`, turn on *Developer mode*, press *Load unpacked* and choose `apps/extension`. Its ID is always `eooocceknjjdpfdbcgakcdmofbnmbdmb`: the manifest carries the public key it comes from, so Hivebubble knows it.
 
 **What's in the repo:**
 
@@ -87,18 +99,27 @@ pnpm desktop
 | `plugin` | Hivebubble's own skills (house style, verify, explain), loaded as a Claude Code plugin |
 | `registry` | The curated skills and starters (`skills.json`, `starters.json`). New entries come by pull request |
 | `starters` | Hivebubble's own starters: a booking app and a small-business website |
-| `apps/desktop` | The Tauri Mac app around the engine |
+| `apps/desktop` | The Tauri desktop app around the engine (macOS, Windows, Linux) |
+| `apps/extension` | The Chrome extension (Manifest V3) that puts the bubble on other localhost pages |
 | `examples/vite-react` | A small bakery site to try it on |
 
 **How source tags work:** for a Vite project, Hivebubble writes `.hivebubble/vite.config.mjs`, which loads your own Vite config unchanged and adds the source-tags plugin. It then starts your dev script with `--config` pointing at that file. Your files are never edited, `npm run dev` on its own still uses only your config, production builds never see the tags, and `.hivebubble/` ignores itself in git. If the dev server won't start with them, Hivebubble starts it again without them. Set `HIVEBUBBLE_SOURCE_TAGS=0` to turn them off.
 
 **Tests:**
-- `pnpm test` builds everything and runs the unit tests of all three packages, including the router's test set of 30 prompts (`packages/core/bench/prompts.json`). The deploy tests run against local stand-ins for the Vercel and Netlify APIs, and one builds the example with Vite and deploys it through the bubble's session end to end. The Users & Data tests run real PostgreSQL (PGlite, Postgres compiled to WebAssembly) behind a real socket, so the same driver code talks to it as to Supabase, with a Supabase-shaped `auth` schema.
+- `pnpm test` builds everything and runs the unit tests of all three packages, including the router's test set of 30 prompts (`packages/core/bench/prompts.json`). The deploy tests run against local stand-ins for the Vercel and Netlify APIs, and one builds the example with Vite and deploys it through the bubble's session end to end. The Users & Data tests run real PostgreSQL (PGlite, Postgres compiled to WebAssembly) behind a real socket, so the same driver code talks to it as to Supabase, with a Supabase-shaped `auth` schema. Other tests check who may pair and open the bubble's socket, attach mode, and the commands built for Windows.
+- CI runs the tests on macOS, Linux and Windows, and the *Desktop app* workflow builds the app and its installers on all three (`.dmg`, `.msi` and `.exe`, `.deb`, `.rpm` and `.AppImage`).
 - `pnpm smoke` runs an end-to-end check while `pnpm demo` is running. It checks that the dev server serves tagged modules, a picked element's edit goes straight to its file and line, the page check passes, and Undo restores the file.
 - `pnpm bench` runs the router's test set with Claude, once at the router's effort and once at max effort, on fresh copies of the example, and grades each run with its "done" checks. It prints time, cost and pass rate per mode. Without `--yes` it only shows the plan and a rough cost; `--mock --yes` checks the pipeline for free.
 
 **Known limits:**
-- The Mac app runs the engine from this repo checkout. A packaged `.dmg` with Node bundled inside comes in v0.2.
+- The desktop app runs the engine from this repo checkout on every system. Installers with Node bundled inside come in v0.2. The installers CI builds aren't signed, so macOS and Windows warn before opening them.
+- **Windows and Linux:** the engine's tests pass there in CI and the app builds there, but nobody has clicked through the app on those systems by hand yet.
+- **The extension:**
+  - It's loaded unpacked, not from the Chrome Web Store yet. A store copy would get another ID; Hivebubble accepts extra IDs from `HIVEBUBBLE_EXTENSION_IDS`.
+  - It looks for Hivebubble on ports 4321 to 4330.
+  - A page with a strict Content-Security-Policy can block the bubble script it adds.
+  - Pages you add the bubble to can use it, as Hivebubble's own preview can.
+  - In attach mode there are no source tags (Hivebubble didn't start the dev server), so the bees fly near the work, and a crashed dev server is yours to restart.
 - The agent can read, search and edit files inside the project only. It can't run commands, so it asks you to install packages, and the workbench shows file work only.
 - Source tags need a Vite project whose dev script starts Vite directly, and they tag JSX (React, Preact, Solid). Elsewhere (Next.js, Astro, Vue or Svelte files) the bees fly to the picked element or near the work, and no element is highlighted.
 - The picked element goes to Claude with its source location and HTML. The screenshot crop from §5 isn't done yet.
@@ -443,7 +464,7 @@ Every milestone ends with something you can film.
 | **M4** ✅ | Skills & starters | Registry, lock file, Skills screen, "new app from a starter" | "Empty folder to working booking app" timelapse |
 | **M5** ✅ | Deploy wizard | Vercel works end to end with illustrated steps, then Netlify and Cloudflare | "Localhost to a live URL in one click" |
 | **M6** ✅ | Users & Data | Read-only queries on Supabase and Postgres, a logs summary, safe writes | "I asked my app who signed up today" |
-| **M7** | Beyond the Mac | Windows and Linux builds, plus an optional Chrome extension that attaches to any localhost | Platform launch posts |
+| **M7** ✅ | Beyond the Mac | Windows and Linux builds, plus an optional Chrome extension that attaches to any localhost | Platform launch posts |
 
 **Big launch** (Show HN, Product Hunt): after M3 or M4, once a stranger can install Hivebubble and get the "wow" moment within 5 minutes.
 

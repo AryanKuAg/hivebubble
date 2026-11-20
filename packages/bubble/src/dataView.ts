@@ -227,7 +227,7 @@ export class DataView {
       el('li', '', 'Supabase: open your project, press Connect, and copy the “Session pooler” connection string. Put your database password in place of [YOUR-PASSWORD].'),
       el('li', '', 'Any other Postgres: use its connection string, the one that starts with postgres://.'),
       el('li', '', info.app
-        ? 'In the Hivebubble app, paste it under Database for this project. It’s kept in your Mac’s Keychain, and the project restarts with it.'
+        ? 'In the Hivebubble app, paste it under Users & Data for this project. The app keeps it in your computer’s secure storage (the Keychain on a Mac, Credential Manager on Windows) and restarts the project with it.'
         : 'Put it in your project’s .env.local as DATABASE_URL=postgres://… and press Check again.'),
     );
     box.append(steps, el('p', 'small muted', 'Hivebubble only reads your data, unless you ask for a change and confirm it after seeing exactly which rows it touches.'));
