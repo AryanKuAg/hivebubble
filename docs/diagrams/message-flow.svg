@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 1280 720" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="message-flow-title message-flow-desc" id="message-flow-root">
+        <title id="message-flow-title">One Hivebubble message, start to finish</title>
+        <desc id="message-flow-desc">Sequence diagram showing a chat message and selected element going to the smart router, which scores the task, starts the cursor swarm and hands a low-effort plan to the agent runtime, which loops with the Claude API while file edits hot-reload the page, then returns a result with an undo point.</desc>
+        <defs>
+      <style>@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&amp;family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500;600&amp;family=Noto+Serif:ital@0;1&amp;family=Noto+Sans+KR:wght@400;500;600&amp;family=Noto+Serif+KR:wght@400&amp;family=Noto+Sans+TC:wght@400;500;600&amp;family=Noto+Serif+TC:wght@400&amp;display=swap');
+      #message-flow-root { --color-paper:   #f5f5f5;
+      --color-ink:     #2d3142;
+      --color-muted:   #4f5d75;
+      --color-accent:  #bf4520;
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace; }
+      #message-flow-root { font-family: var(--font-sans); color: var(--color-ink); }
+      #message-flow-root .diagram-container { width: 100%; overflow-x: auto; }
+      @media print {
+#message-flow-root .diagram-container { overflow-x: visible; }
+}</style>
+          <marker id="message-flow-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+          <marker id="message-flow-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#bf4520"/></marker>
+          <marker id="message-flow-arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+          <marker id="message-flow-arrow-open" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polyline points="0 0, 8 3, 0 6" fill="none" stroke="#4f5d75" stroke-width="1.2"/></marker>
+        </defs>
+        <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+        <!-- Lifelines -->
+        <line x1="128" y1="112" x2="128" y2="616" stroke="#2d3142" stroke-width="1" stroke-dasharray="3,3" stroke-opacity="0.22"/>
+        <line x1="384" y1="112" x2="384" y2="616" stroke="#2d3142" stroke-width="1" stroke-dasharray="3,3" stroke-opacity="0.22"/>
+        <line x1="640" y1="112" x2="640" y2="616" stroke="#2d3142" stroke-width="1" stroke-dasharray="3,3" stroke-opacity="0.22"/>
+        <line x1="896" y1="112" x2="896" y2="616" stroke="#2d3142" stroke-width="1" stroke-dasharray="3,3" stroke-opacity="0.22"/>
+        <line x1="1152" y1="112" x2="1152" y2="616" stroke="#2d3142" stroke-width="1" stroke-dasharray="3,3" stroke-opacity="0.22"/>
+        <!-- LOOP fragment -->
+        <rect x="96" y="300" width="1088" height="220" rx="4" fill="#2d3142" stroke="#2d3142" stroke-width="1" fill-opacity="0.02" stroke-opacity="0.22"/>
+        <rect x="96" y="300" width="40" height="16" rx="2" fill="#f5f5f5" stroke="#2d3142" stroke-width="1" stroke-opacity="0.22"/>
+        <text x="116" y="312" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.12em">LOOP</text>
+        <rect x="104" y="324" width="136" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="108" y="333" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.04em">[until the task is done]</text>
+        <!-- Activation bars -->
+        <rect x="636" y="152" width="8" height="128" fill="#2d3142" stroke="#4f5d75" stroke-width="0.8" fill-opacity="0.06"/>
+        <rect x="892" y="276" width="8" height="284" fill="#2d3142" stroke="#4f5d75" stroke-width="0.8" fill-opacity="0.06"/>
+        <rect x="1148" y="356" width="8" height="36" fill="#2d3142" stroke="#4f5d75" stroke-width="0.8" fill-opacity="0.06"/>
+        <rect x="380" y="424" width="8" height="76" fill="#2d3142" stroke="#4f5d75" stroke-width="0.8" fill-opacity="0.06"/>
+        <rect x="636" y="556" width="8" height="40" fill="#2d3142" stroke="#4f5d75" stroke-width="0.8" fill-opacity="0.06"/>
+        <!-- Messages -->
+        <line x1="128" y1="152" x2="636" y2="152" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#message-flow-arrow)"/>
+        <path d="M 644,184 H 676 Q 684,184 684,192 V 196 Q 684,204 676,204 H 644" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#message-flow-arrow)"/>
+        <line x1="636" y1="240" x2="128" y2="240" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#message-flow-arrow-open)"/>
+        <line x1="644" y1="276" x2="892" y2="276" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#message-flow-arrow)"/>
+        <line x1="900" y1="356" x2="1148" y2="356" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#message-flow-arrow-link)"/>
+        <line x1="1148" y1="388" x2="900" y2="388" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#message-flow-arrow)"/>
+        <line x1="892" y1="424" x2="388" y2="424" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#message-flow-arrow-open)"/>
+        <line x1="892" y1="460" x2="128" y2="460" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#message-flow-arrow-open)"/>
+        <line x1="380" y1="496" x2="128" y2="496" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#message-flow-arrow-open)"/>
+        <line x1="892" y1="556" x2="644" y2="556" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#message-flow-arrow)"/>
+        <line x1="636" y1="592" x2="128" y2="592" stroke="#bf4520" stroke-width="1.4" marker-end="url(#message-flow-arrow-accent)"/>
+        <!-- Message labels -->
+        <rect x="216" y="132" width="80" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="256" y="141" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">ASK + ELEMENT</text>
+        <rect x="692" y="188" width="64" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="696" y="197" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="start" letter-spacing="0.06em">SCORE TASK</text>
+        <rect x="222" y="220" width="68" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="256" y="229" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">START SWARM</text>
+        <rect x="734" y="256" width="68" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="768" y="265" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">EFFORT: LOW</text>
+        <rect x="992" y="336" width="64" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="1024" y="345" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">AGENT TURN</text>
+        <rect x="992" y="368" width="64" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="1024" y="377" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">TOOL CALLS</text>
+        <rect x="736" y="404" width="64" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="768" y="413" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">EDIT FILES</text>
+        <rect x="730" y="440" width="76" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="768" y="449" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">CURSOR MOVES</text>
+        <rect x="224" y="476" width="64" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="256" y="485" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">HOT RELOAD</text>
+        <rect x="746" y="536" width="44" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="768" y="545" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">RESULT</text>
+        <rect x="222" y="572" width="68" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="256" y="581" fill="#bf4520" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">DONE + UNDO</text>
+        <!-- Node: You (input) -->
+        <rect x="48" y="56" width="160" height="56" rx="6" fill="#f5f5f5"/>
+        <rect x="48" y="56" width="160" height="56" rx="6" fill="#4f5d75" stroke="#5a6580" stroke-width="1" fill-opacity="0.10"/>
+        <rect x="56" y="64" width="24" height="12" rx="2" fill="none" stroke="#5a6580" stroke-width="0.8" stroke-opacity="0.40"/>
+        <text x="68" y="73" fill="#5a6580" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">YOU</text>
+        <text x="128" y="88" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">You</text>
+        <text x="128" y="103" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">chat bubble</text>
+        <!-- Node: Dev Server (backend) -->
+        <rect x="304" y="56" width="160" height="56" rx="6" fill="#f5f5f5"/>
+        <rect x="304" y="56" width="160" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <rect x="312" y="64" width="24" height="12" rx="2" fill="none" stroke="#2d3142" stroke-width="0.8" stroke-opacity="0.40"/>
+        <text x="324" y="73" fill="#2d3142" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">DEV</text>
+        <text x="384" y="88" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Dev Server</text>
+        <text x="384" y="103" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">next dev · HMR</text>
+        <!-- Node: Smart Router (focal) -->
+        <rect x="560" y="56" width="160" height="56" rx="6" fill="#f5f5f5"/>
+        <rect x="560" y="56" width="160" height="56" rx="6" fill="#bf4520" stroke="#bf4520" stroke-width="1" fill-opacity="0.08"/>
+        <rect x="568" y="64" width="40" height="12" rx="2" fill="none" stroke="#bf4520" stroke-width="0.8" stroke-opacity="0.50"/>
+        <text x="588" y="73" fill="#bf4520" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">ROUTER</text>
+        <text x="640" y="88" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Smart Router</text>
+        <text x="640" y="103" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">effort picker</text>
+        <!-- Node: Agent Runtime (backend) -->
+        <rect x="816" y="56" width="160" height="56" rx="6" fill="#f5f5f5"/>
+        <rect x="816" y="56" width="160" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <rect x="824" y="64" width="36" height="12" rx="2" fill="none" stroke="#2d3142" stroke-width="0.8" stroke-opacity="0.40"/>
+        <text x="842" y="73" fill="#2d3142" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">AGENT</text>
+        <text x="896" y="88" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Agent Runtime</text>
+        <text x="896" y="103" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">Claude Agent SDK</text>
+        <!-- Node: Claude API (external) -->
+        <rect x="1072" y="56" width="160" height="56" rx="6" fill="#f5f5f5"/>
+        <rect x="1072" y="56" width="160" height="56" rx="6" fill="#2d3142" stroke="#2d3142" stroke-width="1" fill-opacity="0.03" stroke-opacity="0.30"/>
+        <rect x="1080" y="64" width="24" height="12" rx="2" fill="none" stroke="#2d3142" stroke-width="0.8" stroke-opacity="0.22"/>
+        <text x="1092" y="73" fill="#5a6580" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">API</text>
+        <text x="1152" y="88" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Claude API</text>
+        <text x="1152" y="103" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">Opus 5.5</text>
+        <!-- Legend strip -->
+        <line x1="48" y1="640" x2="1232" y2="640" stroke="#2d3142" stroke-width="0.8" stroke-opacity="0.10"/>
+        <text x="48" y="656" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.18em">LEGEND</text>
+        <rect x="48" y="672" width="14" height="10" rx="2" fill="#bf4520" stroke="#bf4520" stroke-width="1" fill-opacity="0.08"/>
+        <text x="68" y="680" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">Focal actor</text>
+        <line x1="168" y1="678" x2="196" y2="678" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#message-flow-arrow)"/>
+        <text x="204" y="680" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">Call</text>
+        <line x1="264" y1="678" x2="292" y2="678" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#message-flow-arrow-link)"/>
+        <text x="300" y="680" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">Claude API call</text>
+        <line x1="408" y1="678" x2="436" y2="678" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#message-flow-arrow)"/>
+        <text x="444" y="680" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">Return</text>
+        <line x1="512" y1="678" x2="540" y2="678" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#message-flow-arrow-open)"/>
+        <text x="548" y="680" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">Async event</text>
+        <line x1="640" y1="678" x2="668" y2="678" stroke="#bf4520" stroke-width="1.4" marker-end="url(#message-flow-arrow-accent)"/>
+        <text x="676" y="680" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">Headline success</text>
+      </svg>
