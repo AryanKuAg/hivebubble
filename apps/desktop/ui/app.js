@@ -320,6 +320,8 @@ function showRunning(project) {
   $('skill-diff').hidden = true;
   $('skills-msg').textContent = '';
   void refreshSkills();
+  $('db-msg').textContent = '';
+  void refreshDb();
   $('project-name').textContent = basename(project);
   $('project-path').textContent = project;
   $('live').hidden = true;
@@ -354,6 +356,51 @@ function appendLog(line) {
   pre.textContent = logLines.join('\n');
   pre.scrollTop = pre.scrollHeight;
 }
+
+// ---- Users & Data: the project's database connection, kept in the Keychain ----
+/** Resolved when the engine's process ends (see the core-exit listener). */
+const exitWaiters = [];
+
+async function refreshDb() {
+  if (!currentProject) return;
+  const saved = await invoke('has_db_url', { project: currentProject }).catch(() => false);
+  $('db-status').textContent = saved
+    ? '✓ A connection string is saved for this project.'
+    : 'Nothing saved yet. Hivebubble also uses DATABASE_URL from the project’s .env.local.';
+  $('db-status').classList.toggle('ok', Boolean(saved));
+  $('db-clear').hidden = !saved;
+}
+
+/** Restart the engine so it picks up a new connection. Waits for the old one to exit first. */
+async function restartProject(note) {
+  const project = currentProject;
+  stopping = true;
+  const exited = new Promise((resolve) => exitWaiters.push(resolve));
+  await invoke('stop_project');
+  await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 1500))]);
+  await start(project);
+  $('db-msg').textContent = note;
+}
+
+$('db-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await invoke('save_db_url', { project: currentProject, url: $('db-url').value });
+    $('db-url').value = '';
+    await restartProject('Saved. The project restarted with the database connected: open Users & Data in the bubble.');
+  } catch (err) {
+    $('db-msg').textContent = String(err);
+  }
+});
+
+$('db-clear').addEventListener('click', async () => {
+  try {
+    await invoke('clear_db_url', { project: currentProject });
+    await restartProject('Removed. The project restarted without it.');
+  } catch (err) {
+    $('db-msg').textContent = String(err);
+  }
+});
 
 async function start(project, prompt) {
   showRunning(project);
@@ -394,6 +441,7 @@ listen('core-event', (event) => {
 });
 
 listen('core-exit', () => {
+  for (const done of exitWaiters.splice(0)) done();
   if (stopping || $('running').hidden) return;
   $('stop').textContent = 'Back';
   if (!$('status').classList.contains('error')) $('status').textContent = 'Hivebubble stopped.';

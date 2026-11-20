@@ -3,6 +3,7 @@ import type http from 'node:http';
 import { createRequire } from 'node:module';
 import { verifyApiKey } from './agent.js';
 import { Checker } from './checks.js';
+import { DevErrorCatcher } from './logs.js';
 import { sourceFiles } from './mockAgent.js';
 import { ManagedProcess, findFreePort, waitForPort } from './processes.js';
 import { detectProject, devCommand, frameworkLabel, installCommand } from './project.js';
@@ -89,6 +90,9 @@ export async function startHivebubble(opts: StartOptions): Promise<Running> {
     isEmpty: () => sourceFiles(info.dir, 20).filter((f) => !/(?:^|[\\/])(?:index\.html|[\w.-]*config\.[cm]?[jt]s)$/.test(f)).length === 0,
   });
 
+  // Errors in the dev server's output go to the logs summary (Users & Data).
+  const devErrors = new DevErrorCatcher(session.errors);
+
   let stopping = false;
   const server = createProxy({
     target: () => devPort,
@@ -137,6 +141,7 @@ export async function startHivebubble(opts: StartOptions): Promise<Running> {
     let reported: number | null = null;
     const proc = new ManagedProcess(devCommand(info, wanted, extra), info.dir, (line) => {
       r.log('dev', line);
+      devErrors.line(line);
       const m = line.match(/(?:localhost|127\.0\.0\.1|\[::1\]):(\d{2,5})/);
       if (m && reported === null) reported = Number(m[1]);
     });

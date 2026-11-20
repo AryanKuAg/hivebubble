@@ -1,7 +1,8 @@
 import type { AgentKind, ChatEntry, CheckResult, Effort, Mode, PickedElement, Route, ServerEvent, SpendSummary } from '../../core/src/types';
 import { Connection } from './connection';
+import { DataView } from './dataView';
 import { DeployView } from './deployView';
-import { BEE, BULB, CLOSE, GLOBE, HIVE, HIVE_ENTRANCE, PICK, SEND, STOP, UNDO } from './icons';
+import { BEE, BULB, CLOSE, DATA, GLOBE, HIVE, HIVE_ENTRANCE, PICK, SEND, STOP, UNDO } from './icons';
 import { describeElement, startPicker } from './picker';
 import { SWARM_SIZE, Swarm } from './swarm';
 import { CSS } from './styles';
@@ -19,12 +20,14 @@ const TEMPLATE = `
     <header>
       <div class="brand">${HIVE}<span>Hivebubble</span><span class="chip agent" hidden></span><span class="chip spend" hidden></span></div>
       <span class="conn" hidden>Reconnecting…</span>
+      <button class="icon-btn data-btn" type="button" title="Users & Data" aria-label="Users and data">${DATA}</button>
       <button class="icon-btn online" type="button" title="Put it online" aria-label="Put it online">${GLOBE}</button>
       <button class="icon-btn undo" type="button" disabled title="Undo the last change">${UNDO}<span class="txt">Undo</span></button>
       <button class="icon-btn close" type="button" aria-label="Close chat">${CLOSE}</button>
     </header>
     <div class="banner" hidden></div>
     <section class="deploy" aria-label="Put it online" hidden></section>
+    <section class="data" aria-label="Users and data" hidden></section>
     <div class="messages" aria-live="polite"></div>
     <div class="composer">
       <div class="picked" hidden><span></span><small class="src"></small><button class="icon-btn unpick" type="button" aria-label="Remove picked element">${CLOSE}</button></div>
@@ -136,19 +139,32 @@ export function mount(): void {
     },
     () => showChat(),
   );
-  function showDeploy(): void {
-    setOpen(true);
-    q<HTMLElement>('.deploy').hidden = false;
-    messages.hidden = true;
-    composer.hidden = true;
-    deployView.open();
+  // ---- Users & Data (README §10) ----------------------------------------------
+  const dataView = new DataView(
+    q<HTMLElement>('.data'),
+    (msg) => connection.send(msg),
+    (text) => {
+      showChat();
+      textarea.value = text;
+      textarea.focus();
+    },
+    () => showChat(),
+  );
+
+  /** One view at a time in the panel: the chat, the deploy wizard, or Users & Data (wider). */
+  function showView(view: 'chat' | 'deploy' | 'data'): void {
+    if (view !== 'chat') setOpen(true);
+    q<HTMLElement>('.deploy').hidden = view !== 'deploy';
+    q<HTMLElement>('.data').hidden = view !== 'data';
+    panel.classList.toggle('wide', view === 'data');
+    messages.hidden = view !== 'chat';
+    composer.hidden = view !== 'chat';
+    if (view === 'deploy') deployView.open();
+    if (view === 'data') dataView.open();
+    if (view === 'chat') scroll();
   }
-  function showChat(): void {
-    q<HTMLElement>('.deploy').hidden = true;
-    messages.hidden = false;
-    composer.hidden = false;
-    scroll();
-  }
+  const showDeploy = () => showView('deploy');
+  const showChat = () => showView('chat');
 
   // ---- rendering ---------------------------------------------------------
   const scroll = () => {
@@ -395,6 +411,18 @@ export function mount(): void {
       case 'deploy-info':
         deployView.setInfo(e);
         break;
+      case 'data-info':
+      case 'data-working':
+      case 'data-result':
+      case 'data-proposal':
+      case 'data-reply':
+      case 'data-error':
+      case 'data-applied':
+      case 'data-changes':
+      case 'data-undo-result':
+      case 'data-logs':
+        dataView.event(e);
+        break;
       case 'deploy':
         deployView.progress(e);
         swarm.deploy(e);
@@ -443,18 +471,27 @@ export function mount(): void {
     }
   }
 
-  // Errors on the page while a task runs go to the engine: the page check counts
-  // the ones that come from files the task changed.
+  // Errors on the page go to the engine: the logs summary keeps them, and while a
+  // task runs the page check counts the ones from files the task changed. The
+  // same error is sent at most once every 5 seconds (a render loop can throw
+  // hundreds a second).
+  const lastSent = new Map<string, number>();
+  function reportError(message: string, source?: string): void {
+    const key = `${message}\n${source ?? ''}`.slice(0, 500);
+    const now = Date.now();
+    if ((lastSent.get(key) ?? 0) > now - 5000) return;
+    if (lastSent.size > 200) lastSent.clear();
+    lastSent.set(key, now);
+    connection.send({ type: 'page-error', message, source });
+  }
   window.addEventListener('error', (ev) => {
-    if (!busy) return;
     const where = ev.filename ? `${ev.filename}:${ev.lineno}:${ev.colno}` : '';
     const stack = ev.error instanceof Error && ev.error.stack ? ev.error.stack : '';
-    connection.send({ type: 'page-error', message: ev.message || String(ev.error), source: `${where}\n${stack}`.trim() });
+    reportError(ev.message || String(ev.error), `${where}\n${stack}`.trim());
   });
   window.addEventListener('unhandledrejection', (ev) => {
-    if (!busy) return;
     const reason = ev.reason instanceof Error ? ev.reason : null;
-    connection.send({ type: 'page-error', message: reason ? reason.message : String(ev.reason), source: reason?.stack });
+    reportError(reason ? reason.message : String(ev.reason), reason?.stack);
   });
 
   // ---- actions -----------------------------------------------------------
@@ -498,6 +535,7 @@ export function mount(): void {
   undoBtn.addEventListener('click', () => connection.send({ type: 'undo' }));
   pickBtn.addEventListener('click', beginPick);
   q<HTMLButtonElement>('.online').addEventListener('click', () => (q<HTMLElement>('.deploy').hidden ? showDeploy() : showChat()));
+  q<HTMLButtonElement>('.data-btn').addEventListener('click', () => showView(q<HTMLElement>('.data').hidden ? 'data' : 'chat'));
   thinkBtn.addEventListener('click', () => setThinkHarder(!thinkHarder));
   q<HTMLButtonElement>('.unpick').addEventListener('click', () => setPicked(null));
   shadow.querySelectorAll<HTMLButtonElement>('.modes button').forEach((b) =>

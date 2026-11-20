@@ -1,15 +1,9 @@
 import type { ClientMessage, HostCard, HostId, ServerEvent } from '../../core/src/types';
+import { el } from './dom';
 import { STEP_ART } from './icons';
 
 type InfoEvent = Extract<ServerEvent, { type: 'deploy-info' }>;
 type DeployEvent = Extract<ServerEvent, { type: 'deploy' }>;
-
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text = ''): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  if (cls) node.className = cls;
-  if (text) node.textContent = text;
-  return node;
-}
 
 const PHASES: Array<{ id: 'build' | 'upload' | 'live'; label: string; art: keyof typeof STEP_ART }> = [
   { id: 'build', label: 'Build it here first', art: 'build' },

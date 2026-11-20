@@ -102,6 +102,42 @@ fn clear_host_token(host: String) -> Result<(), String> {
     }
 }
 
+/// A project's database connection string for Users & Data: one Keychain item
+/// per project folder. The engine gets it as HIVEBUBBLE_DATABASE_URL.
+fn db_entry(project: &str) -> Result<keyring::Entry, String> {
+    keyring::Entry::new(KEYCHAIN_SERVICE, &format!("db:{project}")).map_err(|e| e.to_string())
+}
+
+fn db_url(project: &str) -> Option<String> {
+    db_entry(project).ok()?.get_password().ok().filter(|u| !u.trim().is_empty())
+}
+
+#[tauri::command]
+fn save_db_url(project: String, url: String) -> Result<(), String> {
+    let url = url.trim();
+    let scheme = url.starts_with("postgres://") || url.starts_with("postgresql://");
+    if !scheme || url.len() > 2048 || url.chars().any(char::is_whitespace) {
+        return Err("A connection string starts with postgres:// or postgresql://. Copy it again from your database's dashboard.".into());
+    }
+    if url.contains("[YOUR-PASSWORD]") {
+        return Err("Put your database password in place of [YOUR-PASSWORD] first.".into());
+    }
+    db_entry(&project)?.set_password(url).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn clear_db_url(project: String) -> Result<(), String> {
+    match db_entry(&project)?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+fn has_db_url(project: String) -> bool {
+    db_url(&project).is_some()
+}
+
 /// Apps opened from Finder don't get the shell's PATH, so ask the login shell
 /// once. That finds node and npm wherever they were installed (Homebrew, nvm, …).
 fn login_path() -> String {
@@ -368,6 +404,11 @@ fn start_project(app: AppHandle, state: State<AppState>, project: String, demo: 
     if let Some(prompt) = prompt.filter(|p| !p.trim().is_empty()) {
         cmd.arg("--prompt").arg(prompt);
     }
+    // The bubble tells people to save connection strings here, not in a file.
+    cmd.env("HIVEBUBBLE_APP", "1").env_remove("HIVEBUBBLE_DATABASE_URL");
+    if let Some(url) = db_url(&project) {
+        cmd.env("HIVEBUBBLE_DATABASE_URL", url);
+    }
     // Hosting accounts from the Keychain, for the deploy wizard.
     for (host, vars) in HOSTS {
         for var in vars {
@@ -449,6 +490,9 @@ fn main() {
             open_link,
             save_host_token,
             clear_host_token,
+            save_db_url,
+            clear_db_url,
+            has_db_url,
             save_api_key,
             clear_api_key,
             pick_folder,

@@ -53,6 +53,9 @@ export const BULB = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18h
 
 export const GLOBE = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`;
 
+/** Users & Data: a database. */
+export const DATA = `<svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5.5" rx="7.5" ry="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4.5 5.5v13c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-13M4.5 12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3" fill="none" stroke="currentColor" stroke-width="2"/></svg>`;
+
 /** Small pictures for the deploy steps (README §9: "each one a screen with a picture"). */
 export const STEP_ART = {
   connect: `<svg viewBox="0 0 48 48" aria-hidden="true"><rect x="6" y="14" width="16" height="20" rx="4" fill="#fff3c4" stroke="#1f1a14" stroke-width="2.5"/><rect x="26" y="14" width="16" height="20" rx="4" fill="#dff1ff" stroke="#1f1a14" stroke-width="2.5"/><path d="M18 24h12" stroke="#1f1a14" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="3 4"/></svg>`,

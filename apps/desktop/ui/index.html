@@ -83,6 +83,18 @@
           </div>
           <p id="skills-msg" class="muted small" role="status"></p>
         </section>
+        <section class="db" aria-labelledby="db-title">
+          <h3 id="db-title">Users &amp; Data</h3>
+          <p class="small muted">Connect this project’s database to ask about your users from the bubble. Paste its connection string (in Supabase: Connect, then Session pooler). It’s kept in your Mac’s Keychain.</p>
+          <p id="db-status" class="small"></p>
+          <form id="db-form" class="db-form">
+            <label for="db-url" class="sr-only">Database connection string</label>
+            <input id="db-url" type="password" placeholder="postgresql://…" autocomplete="off" spellcheck="false" />
+            <button class="secondary" type="submit">Save and restart</button>
+          </form>
+          <button id="db-clear" class="link" type="button" hidden>Remove the saved connection</button>
+          <p id="db-msg" class="muted small" role="status"></p>
+        </section>
       </section>
 
       <!-- Settings -->

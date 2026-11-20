@@ -16,6 +16,35 @@ const STARTING_PAGE = `<!doctype html><html><head><meta charset="utf-8"><meta ht
 <body><main><h1>🐝 Starting your site…</h1><p>Hivebubble is waking up your dev server. This page refreshes by itself.</p></main></body></html>`;
 
 /**
+ * True for the loopback names a browser uses to reach this machine. The proxy
+ * listens on 127.0.0.1 only, so any other Host means a page got here through
+ * DNS rebinding (a site whose name now points at 127.0.0.1) and is refused.
+ */
+export function isLocalHost(host: string | undefined): boolean {
+  if (!host) return false;
+  const name = host.toLowerCase().replace(/:\d+$/, '');
+  return name === 'localhost' || name.endsWith('.localhost') || name === '127.0.0.1' || name === '[::1]';
+}
+
+/**
+ * The bubble's socket can change the project and read its data, so only the
+ * page Hivebubble serves may open it. Browsers always send Origin on a
+ * WebSocket handshake, so another site's page is refused. Local programs
+ * that send no Origin are allowed: they can read the files anyway.
+ */
+export function allowBubbleSocket(req: http.IncomingMessage): boolean {
+  const host = req.headers.host;
+  if (!isLocalHost(host)) return false;
+  const origin = req.headers.origin;
+  return origin === undefined || origin === `http://${host}`;
+}
+
+function refuse(socket: { write: (s: string) => unknown; destroy: () => unknown }): void {
+  socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+  socket.destroy();
+}
+
+/**
  * The preview proxy. It forwards every request to the dev server untouched,
  * except HTML pages, which get the bubble script added. It also serves the
  * bubble script and the bubble's WebSocket, and passes the dev server's own
@@ -26,6 +55,11 @@ export function createProxy(opts: ProxyOptions): http.Server {
 
   const server = http.createServer((req, res) => {
     const url = req.url ?? '/';
+    if (!isLocalHost(req.headers.host)) {
+      res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' });
+      res.end('Hivebubble only answers on localhost.');
+      return;
+    }
     if (url === BUBBLE_PATH || url.startsWith(`${BUBBLE_PATH}?`)) {
       res.writeHead(200, { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'no-store' });
       res.end(opts.bubbleJs());
@@ -85,9 +119,11 @@ export function createProxy(opts: ProxyOptions): http.Server {
   server.on('upgrade', (req, socket, head) => {
     const url = req.url ?? '/';
     if (url === WS_PATH || url.startsWith(`${WS_PATH}?`)) {
+      if (!allowBubbleSocket(req)) return refuse(socket);
       wss.handleUpgrade(req, socket, head, (ws) => opts.onClient(ws));
       return;
     }
+    if (!isLocalHost(req.headers.host)) return refuse(socket);
     const port = opts.target();
     if (port === null) {
       socket.destroy();

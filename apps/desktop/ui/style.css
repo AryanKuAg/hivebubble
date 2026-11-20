@@ -77,6 +77,12 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 18px 0; }
 .host-form select, .host-form input { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); min-width: 0; }
 .new-form { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 .new-form input { font: inherit; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); min-width: 0; }
+.db { margin-top: 20px; }
+.db h3 { margin: 0 0 4px; }
+.db p { margin: 4px 0; }
+#db-status.ok { color: var(--ok); font-weight: 600; }
+.db-form { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 8px; }
+.db-form input { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); min-width: 0; }
 .skills { margin-top: 20px; }
 .skills h3 { margin: 0 0 4px; }
 .skills h4 { margin: 16px 0 6px; font-size: 13px; color: var(--muted); }

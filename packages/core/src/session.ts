@@ -12,6 +12,9 @@ import { RouterLog, type Attempt } from './routerLog.js';
 import { sourceUrl } from './github.js';
 import { declineSkill, installSkill, skillsForTask, suggestSkill } from './skills.js';
 import { deploySite, deploySupport, envNeeds, hostCards, type DeployOptions } from './deploy.js';
+import { DataDesk } from './dataDesk.js';
+import type { Asker } from './dataAsk.js';
+import { ErrorLog } from './logs.js';
 import type { ProjectInfo } from './project.js';
 import type { HostId } from './types.js';
 import type {
@@ -47,6 +50,8 @@ export interface SessionOptions {
   info?: ProjectInfo;
   /** Deploy settings for tests (fake Wrangler, fast polling, a fixed environment). */
   deploy?: Omit<Partial<DeployOptions>, 'signal'>;
+  /** Users & Data settings for tests (a stand-in for Claude, a fixed environment and time zone). */
+  data?: { asker?: Asker; env?: NodeJS.ProcessEnv; timeZone?: string };
 }
 
 const MAX_HISTORY = 200;
@@ -83,12 +88,26 @@ export class Session {
   private draft: string | undefined;
   /** Whether the dev server stamps data-hivebubble-src on elements (set once it has started). */
   sourceTags = false;
+  /** Errors from the page, the dev server and builds, for the logs summary. */
+  readonly errors: ErrorLog;
+  private readonly data: DataDesk;
 
   constructor(private readonly opts: SessionOptions) {
     this.checkpoints = new Checkpoints(opts.cwd);
     this.routerLog = new RouterLog(opts.cwd);
     this.ledger = opts.ledger ?? new SpendLedger();
     this.draft = opts.draft?.trim() || undefined;
+    this.errors = new ErrorLog(opts.cwd);
+    this.data = new DataDesk({
+      projectDir: opts.cwd,
+      agent: opts.agent,
+      apiKey: opts.apiKey,
+      ledger: this.ledger,
+      errorLog: this.errors,
+      emit: (e) => this.broadcast(e),
+      log: opts.log,
+      ...opts.data,
+    });
   }
 
   spend(): SpendSummary {
@@ -133,7 +152,9 @@ export class Session {
         if (this.pendingConfirm?.event.id === msg.id) this.pendingConfirm.answer(Boolean(msg.ok));
         return;
       case 'page-error':
-        if (this.busy && typeof msg.message === 'string') {
+        if (typeof msg.message !== 'string') return;
+        this.errors.add('page', msg.message, typeof msg.source === 'string' ? msg.source : undefined);
+        if (this.busy) {
           this.pageErrors.push(`${msg.message}${msg.source ? `\n${msg.source}` : ''}`.slice(0, 2000));
           if (this.pageErrors.length > 30) this.pageErrors.shift();
         }
@@ -146,6 +167,15 @@ export class Session {
         return this.deployInfo();
       case 'deploy':
         return this.deploy(msg.host);
+      case 'data-info':
+      case 'data-ask':
+      case 'data-run':
+      case 'data-apply':
+      case 'data-cancel':
+      case 'data-changes':
+      case 'data-undo':
+      case 'data-logs':
+        return this.data.handle(msg);
     }
   }
 
@@ -176,7 +206,9 @@ export class Session {
       this.remember({ role: 'system', text: `The site is live at ${url}` });
       this.opts.log(`Deployed to ${host}: ${url}`);
     } catch (err) {
-      this.opts.log(`Deploying to ${host} didn't work: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}`);
+      const message = err instanceof Error ? err.message : String(err);
+      this.opts.log(`Deploying to ${host} didn't work: ${message.split('\n')[0]}`);
+      if (!this.abort?.signal.aborted) this.errors.add('deploy', message, (err as { buildLog?: string }).buildLog);
     } finally {
       this.busy = false;
       this.abort = null;

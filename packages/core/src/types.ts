@@ -116,7 +116,90 @@ export type ClientMessage =
   | { type: 'page-error'; message: string; source?: string }
   /** Open the deploy wizard: which hosts are connected, what the app needs. */
   | { type: 'deploy-info' }
-  | { type: 'deploy'; host: HostId };
+  | { type: 'deploy'; host: HostId }
+  /** Users & Data: is a database connected? */
+  | { type: 'data-info' }
+  /** A question or a change, in plain words. */
+  | { type: 'data-ask'; question: string }
+  /** Run this SQL as a question (read only). */
+  | { type: 'data-run'; sql: string }
+  /** Go ahead with a previewed change. `word`: the typed confirmation for a bulk delete. */
+  | { type: 'data-apply'; id: string; word?: string }
+  | { type: 'data-cancel'; id: string }
+  | { type: 'data-changes' }
+  | { type: 'data-undo'; id: string; force?: boolean }
+  | { type: 'data-logs' };
+
+/** Users & Data (README §10): the database connection as the bubble shows it. */
+export interface DataInfo {
+  connected: boolean;
+  /** Where the connection string came from, e.g. "DATABASE_URL in .env.local". */
+  from?: string;
+  db?: { kind: 'Supabase' | 'Postgres'; host: string; database: string };
+  tables?: number;
+  /** Why it isn't connected, or what went wrong connecting. */
+  problem?: string;
+  /** Questions in plain words work (an API key, or demo mode). */
+  canAsk: boolean;
+  demo: boolean;
+  /** Running inside the Mac app, which keeps the connection string in the Keychain. */
+  app: boolean;
+}
+
+export type DataColumnKind = 'number' | 'date' | 'time' | 'bool' | 'json' | 'text';
+export type DataCell = string | null;
+
+export interface DataTable {
+  columns: Array<{ name: string; kind: DataColumnKind }>;
+  rows: DataCell[][];
+  truncated: boolean;
+}
+
+export interface DataProposal {
+  id: string;
+  summary: string;
+  table: string;
+  action: 'update' | 'delete' | 'insert';
+  count: number;
+  key: string[];
+  columns: string[];
+  /** A column people recognise rows by (a name or an email), shown instead of the key. */
+  label: string | null;
+  rows: Array<{ key: DataCell[]; label?: DataCell; before: DataCell[] | null; after: DataCell[] | null }>;
+  /** Type this word to confirm (bulk deletes). */
+  needsWord: string | null;
+  backupNote: string;
+}
+
+export interface DataChange {
+  id: string;
+  at: string;
+  summary: string;
+  table: string;
+  action: DataProposal['action'];
+  count: number;
+  state: 'applied' | 'undone';
+  undoneAt?: string;
+}
+
+export interface LogGroup {
+  id: string;
+  source: 'page' | 'dev' | 'deploy';
+  message: string;
+  plain: string;
+  count: number;
+  first: string;
+  last: string;
+  file?: string;
+  line?: number;
+  detail?: string;
+}
+
+export interface AuthActivitySummary {
+  users: { total: number; today: number; week: number } | null;
+  actions: Array<{ action: string; label: string; count: number }>;
+  recent: Array<{ at: string; label: string; who: string }>;
+}
 
 export type ToolAction = 'read' | 'search' | 'edit' | 'write' | 'other';
 
@@ -229,4 +312,14 @@ export type ServerEvent =
       buildLog?: string;
       durationMs?: number;
     }
-  | { type: 'spend'; spend: SpendSummary };
+  | { type: 'spend'; spend: SpendSummary }
+  | ({ type: 'data-info' } & DataInfo)
+  | { type: 'data-working'; message: string }
+  | { type: 'data-result'; question?: string; sql: string; headline: string; explanation?: string; table: DataTable; ms: number; costUsd?: number }
+  | { type: 'data-proposal'; question: string; explanation?: string; proposal: DataProposal; costUsd?: number }
+  | { type: 'data-reply'; question: string; text: string; costUsd?: number }
+  | { type: 'data-applied'; change: DataChange }
+  | { type: 'data-changes'; changes: DataChange[] }
+  | { type: 'data-undo-result'; id: string; ok: boolean; message: string; canForce?: boolean; change?: DataChange }
+  | { type: 'data-logs'; groups: LogGroup[]; auth: AuthActivitySummary | null; authProblem?: string }
+  | { type: 'data-error'; message: string };
