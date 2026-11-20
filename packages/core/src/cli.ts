@@ -14,7 +14,8 @@ Usage: hivebubble [project-folder] [options]
 Options:
   --port <n>          Preview port to try first (default 4321)
   --mock-agent        Demo mode: a local stand-in agent, no Claude calls
-  --max-budget <usd>  Spending limit for one task (default 2)
+  --max-budget <usd>  Spending limit for one task (default: the saved setting, $2)
+  --daily-cap <usd>   Pause once Claude has cost this much today (default: the saved setting, $5)
   --no-open           Don't open the browser
   --json              Print machine-readable events (used by the Mac app)
   --exit-with-stdin   Stop when stdin closes (used by the Mac app)
@@ -30,6 +31,7 @@ function main(): void {
       port: { type: 'string' },
       'mock-agent': { type: 'boolean', default: false },
       'max-budget': { type: 'string' },
+      'daily-cap': { type: 'string' },
       'no-open': { type: 'boolean', default: false },
       json: { type: 'boolean', default: false },
       'exit-with-stdin': { type: 'boolean', default: false },
@@ -42,6 +44,8 @@ function main(): void {
 
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
   loadEnvFiles([path.join(process.cwd(), '.env.local'), path.join(repoRoot, '.env.local')]);
+  // Read fresh before every task (readSettings), so the flag wins over the saved setting.
+  if (values['daily-cap']) process.env.HIVEBUBBLE_DAILY_CAP = values['daily-cap'];
 
   const json = values.json;
   const reporter: Reporter = json

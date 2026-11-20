@@ -73,6 +73,17 @@
         <p id="key-msg" class="muted small" role="status"></p>
         <p class="small muted">Get a key at <span class="mono">platform.claude.com</span>. A Claude.ai subscription login can't be used in third-party apps.</p>
         <hr />
+        <h2>Spending</h2>
+        <p class="small" id="spend-today">Today: $0.00</p>
+        <p class="small muted" id="spend-month">This month: $0.00</p>
+        <form id="cap-form" class="cap">
+          <label for="cap" class="small">Daily limit ($)</label>
+          <input id="cap" type="number" min="0.5" max="10000" step="0.5" inputmode="decimal" />
+          <button class="secondary" type="submit">Save</button>
+        </form>
+        <p id="cap-msg" class="muted small" role="status"></p>
+        <p class="small muted">Hivebubble pauses for the day once Claude has cost this much, and asks before big tasks.</p>
+        <hr />
         <h2>System</h2>
         <p class="small" id="node-status">Node.js: checking…</p>
       </aside>

@@ -5,7 +5,7 @@
 
 ---
 
-## Try it (milestones M1 and M2)
+## Try it (milestones M1 to M3)
 
 **What works today:**
 - Open a JavaScript web project. Hivebubble installs its packages, starts its dev server and puts a chat bubble on the page at `http://localhost:4321`.
@@ -17,9 +17,15 @@
   - **Editing**: the bee clicks in, a caret blinks in its label and the element shimmers. A ✓ appears only once hot reload has put the change on the page. A stylesheet edit lights up the elements its rules style.
   - Code that draws nothing on the page (config, data, server code) is worked on at the **workbench** next to the hive.
   - While Claude **thinks** between steps, the bees bob in place. A **failed step** turns its bee amber at the problem, and so does the dev server's error overlay.
-- The **Smart Router** picks Claude's effort for each message. A **Quick / Auto / Thorough** switch moves it down or up a level.
-- **Undo** reverts the last change.
-- The **Mac app** keeps your API key in the macOS Keychain and remembers recent projects.
+- The **Smart Router** picks Claude's effort and the checks for each message, in well under a millisecond and without an LLM call (§6):
+  - It tells questions, text changes, style tweaks, new sections, features, bugs and new apps apart. Quoted new text doesn't count, so *change the button to "Pay now"* stays a quick text change.
+  - Logins, payments, data, secrets and packages get careful effort and a build check. Asking for several things at once, or a failed or undone last attempt, moves the next task one level deeper.
+  - A **Quick / Auto / Thorough** switch moves it down or up a level. **Think harder** is the only way to the deepest effort.
+- **Checks after every change, and one retry.** The dev server has to compile every changed file, and the open page must show no new errors from them. TypeScript projects also get a type check, and bigger tasks a production build (Vite). Errors that were there before the task don't count (Hivebubble checks types and the build once in the background when a project opens). If a check fails, the hive tries once more, one effort level deeper, with the error in hand. If that fails too, it says so plainly.
+- **Cost you can see and cap.** A live cost meter runs while Claude works. Big tasks show an estimate and wait for a yes. Hivebubble pauses for the day at a daily limit ($5 by default, set in the Mac app or with `--daily-cap`), and each task stays under a task limit ($2, `--max-budget`). The bubble and the Mac app show today's and this month's spending.
+- **Undo** reverts the last change, also after a restart. It won't silently overwrite edits made after the task: it asks first.
+- Every task is written to `.hivebubble/router-log.jsonl` (signals, effort, checks, cost, time, outcome, later undos). Estimates for big tasks come from it.
+- The **Mac app** keeps your API key in the macOS Keychain, remembers recent projects and shows your spending and daily limit.
 
 **You need:** macOS, Node.js 20.19 or newer, pnpm 9, and your own Anthropic API key. For the Mac app you also need the Rust toolchain.
 
@@ -51,8 +57,9 @@ pnpm desktop
 **How source tags work:** for a Vite project, Hivebubble writes `.hivebubble/vite.config.mjs`, which loads your own Vite config unchanged and adds the source-tags plugin. It then starts your dev script with `--config` pointing at that file. Your files are never edited, `npm run dev` on its own still uses only your config, production builds never see the tags, and `.hivebubble/` ignores itself in git. If the dev server won't start with them, Hivebubble starts it again without them. Set `HIVEBUBBLE_SOURCE_TAGS=0` to turn them off.
 
 **Tests:**
-- `pnpm test` builds everything and runs the unit tests of all three packages.
-- `pnpm smoke` runs an end-to-end check while `pnpm demo` is running. It checks that the dev server serves tagged modules, a picked element's edit goes straight to its file and line, and Undo restores the file.
+- `pnpm test` builds everything and runs the unit tests of all three packages, including the router's test set of 30 prompts (`packages/core/bench/prompts.json`).
+- `pnpm smoke` runs an end-to-end check while `pnpm demo` is running. It checks that the dev server serves tagged modules, a picked element's edit goes straight to its file and line, the page check passes, and Undo restores the file.
+- `pnpm bench` runs the router's test set with Claude, once at the router's effort and once at max effort, on fresh copies of the example, and grades each run with its "done" checks. It prints time, cost and pass rate per mode. Without `--yes` it only shows the plan and a rough cost; `--mock --yes` checks the pipeline for free.
 
 **Known limits:**
 - The Mac app runs the engine from this repo checkout. A packaged `.dmg` with Node bundled inside comes in v0.2.
@@ -61,6 +68,8 @@ pnpm desktop
 - The picked element goes to Claude with its source location and HTML. The screenshot crop from §5 isn't done yet.
 - The agent doesn't start subagents yet, so the "a new named bee joins" behaviour from §7 has nothing to show.
 - Next.js and other frameworks are detected and started, but only Vite has been tested end to end so far.
+- The build check runs for Vite projects only (a build next to a running `next dev` would fight over `.next`), and there is no visual check yet. The router's LLM tie-breaker for unclear requests (§6) isn't built; unclear requests get balanced effort.
+- Cost estimates are a rough range until a project has a few finished tasks at that effort. The router's numbers in the benchmark need a real run with your API key, so none are published yet.
 
 Everything below is the build plan (drafted 2026-11-20; facts about the Claude Agent SDK and similar tools were checked on that date, with sources at the end).
 
@@ -381,7 +390,7 @@ Every milestone ends with something you can film.
 | **M0** ✅ | Foundations | Repo is public with a license, a README with the diagram, and CI | "I'm building an app that lets anyone build apps by talking to their website", with the architecture diagram |
 | **M1** ✅ v0.1 | Bubble on localhost | Open a Next.js or Vite folder, and Hivebubble installs dependencies, starts the dev server and injects the bubble. Chat edits the page at a fixed effort, and hot reload shows the change. | The first "typed one sentence, site changed" reel |
 | **M2** ✅ | Swarm cursors + picker | Cursors follow real tool events, and the picker attaches `file:line` | **The hero reel:** cursors building a page |
-| **M3** | Router v1 + undo + cost | Rules router, one retry on failure, checkpoints and Undo, cost meter and cap, a test set of 30 prompts | "Auto effort vs. always-max: same result, X× faster, Y× cheaper", with real numbers |
+| **M3** ✅ | Router v1 + undo + cost | Rules router, one retry on failure, checkpoints and Undo, cost meter and cap, a test set of 30 prompts | "Auto effort vs. always-max: same result, X× faster, Y× cheaper", with real numbers |
 | **M4** | Skills & starters | Registry, lock file, Skills screen, "new app from a starter" | "Empty folder to working booking app" timelapse |
 | **M5** | Deploy wizard | Vercel works end to end with illustrated steps, then Netlify and Cloudflare | "Localhost to a live URL in one click" |
 | **M6** | Users & Data | Read-only queries on Supabase and Postgres, a logs summary, safe writes | "I asked my app who signed up today" |

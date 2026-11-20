@@ -5,7 +5,15 @@ export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 /** The three-way switch shown to people: it shifts the router's choice down or up a level. */
 export type Mode = 'quick' | 'balanced' | 'thorough';
 
-export type TaskKind = 'copy' | 'style' | 'component' | 'feature' | 'bug' | 'new-app' | 'general';
+export type TaskKind = 'question' | 'copy' | 'style' | 'component' | 'feature' | 'bug' | 'new-app' | 'general';
+
+/**
+ * What "done" means after a task (README §5, step 6):
+ * - page: the dev server compiles every changed file, and the open page shows no new errors;
+ * - typecheck: TypeScript reports no new errors;
+ * - build: the production build still succeeds.
+ */
+export type Check = 'page' | 'typecheck' | 'build';
 
 export interface Route {
   kind: TaskKind;
@@ -14,6 +22,37 @@ export interface Route {
   label: string;
   /** One short sentence on why the router chose this effort. */
   reason: string;
+  /** The checks to run once the agent is done. */
+  checks: Check[];
+  /** What the router saw (rule, risks, retries…), kept in the router log to tune the rules. */
+  signals: string[];
+}
+
+export interface CheckResult {
+  check: Check;
+  ok: boolean;
+  /** Not run, and why (e.g. the build was already failing before the task). */
+  skipped?: string;
+  /** For a failure: the error, short enough to show and to give back to Claude. */
+  detail?: string;
+  durationMs: number;
+}
+
+/** What Claude has cost, from Hivebubble's ledger (all projects on this computer). */
+export interface SpendSummary {
+  todayUsd: number;
+  todayTasks: number;
+  monthUsd: number;
+  monthTasks: number;
+  dailyCapUsd: number;
+  remainingUsd: number;
+}
+
+export interface CostEstimate {
+  lowUsd: number;
+  highUsd: number;
+  /** 'history': this project's past tasks at this effort; 'typical': a rough guess. */
+  basis: 'history' | 'typical';
 }
 
 /** An element the person picked on the page with the element picker. */
@@ -27,9 +66,14 @@ export interface PickedElement {
 }
 
 export type ClientMessage =
-  | { type: 'chat'; text: string; element?: PickedElement; mode?: Mode }
-  | { type: 'undo' }
-  | { type: 'stop' };
+  | { type: 'chat'; text: string; element?: PickedElement; mode?: Mode; thinkHarder?: boolean }
+  /** The answer to a cost confirmation for a big task. */
+  | { type: 'confirm'; id: string; ok: boolean }
+  /** `force`: undo even though the files changed after the task. */
+  | { type: 'undo'; force?: boolean }
+  | { type: 'stop' }
+  /** An error on the open page while a task runs (the "reload check"). */
+  | { type: 'page-error'; message: string; source?: string };
 
 export type ToolAction = 'read' | 'search' | 'edit' | 'write' | 'other';
 
@@ -90,12 +134,35 @@ export type ServerEvent =
       history: ChatEntry[];
       /** True when the dev server stamps data-hivebubble-src on page elements. */
       sourceTags: boolean;
+      spend: SpendSummary;
     }
   | { type: 'route'; route: Route }
   | { type: 'status'; state: 'idle' | 'working' }
   | { type: 'say'; role: 'assistant' | 'system'; text: string }
   | { type: 'user'; text: string; route: Route }
   | ToolEvent
-  | { type: 'done'; ok: boolean; summary: string; costUsd?: number; durationMs: number; canUndo: boolean }
+  | {
+      type: 'done';
+      ok: boolean;
+      summary: string;
+      costUsd?: number;
+      durationMs: number;
+      canUndo: boolean;
+      checks?: CheckResult[];
+      /** 2 when the router retried after a failed check. */
+      attempts?: number;
+    }
   | { type: 'undone'; files: string[]; canUndo: boolean }
-  | { type: 'error'; message: string };
+  /** The files changed after the task: undoing would throw those later changes away. */
+  | { type: 'undo-conflict'; files: string[] }
+  | { type: 'error'; message: string }
+  /** The live cost meter: what this task has cost so far (an estimate until 'done'). */
+  | { type: 'cost'; usd: number }
+  | { type: 'check'; phase: 'start' | 'end'; check: Check; label: string; result?: CheckResult }
+  /** A check failed: one more try, one effort level up. */
+  | { type: 'retry'; route: Route; reason: string }
+  /** A big task: show the estimate and wait for a 'confirm' answer. */
+  | { type: 'confirm'; id: string; route: Route; estimate: CostEstimate; spend: SpendSummary }
+  /** The daily spending cap is reached: no new tasks today. */
+  | { type: 'paused'; spend: SpendSummary }
+  | { type: 'spend'; spend: SpendSummary };

@@ -65,6 +65,7 @@ await new Promise((resolve, reject) => {
 const hello = await waitFor((e) => e.type === 'hello');
 assert.equal(hello.agent, 'mock', 'run Hivebubble with --mock-agent for this test');
 assert.equal(hello.sourceTags, true);
+assert.equal(typeof hello.spend?.dailyCapUsd, 'number', 'hello carries the spending summary');
 step(`connected to the bubble socket (${hello.project.name}, ${hello.project.framework}, source tags on)`);
 
 ws.send(
@@ -88,6 +89,9 @@ assert.deepEqual(edits.map((e) => e.file), [rel, rel]);
 assert.deepEqual(edits.map((e) => e.lines), [[line, line], [line, line]], 'edit events carry the lines being changed');
 assert.ok(readFileSync(file, 'utf8').includes(NEW));
 step(`edited ${rel} line ${line} in ${(done.durationMs / 1000).toFixed(1)}s with ${starts.length} tool steps, no search`);
+assert.deepEqual(done.checks?.map((c) => [c.check, c.ok, Boolean(c.skipped)]), [['page', true, false]], 'the page check ran and passed');
+assert.deepEqual(events.filter((e) => e.type === 'check').map((e) => e.phase), ['start', 'end']);
+step('the page check compiled the changed file through the dev server and passed');
 
 ws.send(JSON.stringify({ type: 'undo' }));
 const undone = await waitFor((e) => e.type === 'undone');

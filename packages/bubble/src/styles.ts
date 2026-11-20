@@ -57,8 +57,22 @@ header { display: flex; align-items: center; gap: 8px; padding: 12px 12px 12px 1
 .msg.system { align-self: center; max-width: 95%; background: none; color: var(--muted); font-size: 13px; text-align: center; padding: 2px 8px; }
 .msg.system.error { color: var(--error); }
 .route { align-self: flex-end; margin-top: -4px; font-size: 11px; color: var(--honey-ink); background: var(--honey-tint); border-radius: 999px; padding: 2px 8px; }
-.meta { align-self: flex-start; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.meta { align-self: flex-start; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
 .meta .icon-btn { padding: 2px 6px; }
+.checks { display: inline-flex; gap: 4px; }
+.check { font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); cursor: default; }
+.check.ok { color: var(--ok); border-color: rgba(43,138,62,.35); background: rgba(43,138,62,.08); }
+.check.failed { color: var(--error); border-color: rgba(180,35,24,.35); background: rgba(180,35,24,.06); }
+.check.skipped { color: var(--muted); }
+.card { align-self: stretch; padding: 10px 12px; border-radius: 12px; background: var(--card); border: 1px solid var(--honey); box-shadow: 0 2px 8px rgba(31,26,20,.08); }
+.card p { margin: 0 0 8px; font-size: 13px; }
+.card .actions { display: flex; gap: 8px; }
+.card button { border: 1px solid var(--line); background: var(--paper); border-radius: 8px; padding: 5px 12px; font-size: 13px; }
+.card button.primary { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.card button:disabled { opacity: .45; cursor: default; }
+.chip.spend { background: rgba(31,26,20,.06); color: var(--muted); cursor: default; }
+.chip.spend.off { background: rgba(180,35,24,.1); color: var(--error); }
+.think[aria-pressed="true"] { background: var(--honey-tint); color: var(--honey-ink); border-color: rgba(242,167,27,.5); }
 .working { align-self: flex-start; display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
 .working svg { width: 22px; height: 22px; animation: bob .9s ease-in-out infinite alternate; }
 
@@ -146,6 +160,7 @@ textarea {
 
 @media (max-width: 480px) {
   .panel { right: 16px; left: 16px; width: auto; bottom: 104px; }
+  .think .txt, .pick .txt { display: none; }
   .launcher { right: 12px; bottom: 8px; }
   .tray { display: none; }
 }

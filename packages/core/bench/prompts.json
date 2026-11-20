@@ -1,0 +1,198 @@
+{
+  "about": "The Smart Router's test set (README §6): 30 real requests for examples/vite-react, each with the route the router should pick and a small 'done' check. The unit tests check the routes for free; `pnpm bench` runs them with Claude (auto effort vs. always-max) to measure time, cost and pass rate. A `setup` step plants a bug before a bug-fix prompt.",
+  "project": "examples/vite-react",
+  "prompts": [
+    {
+      "id": "copy-headline",
+      "prompt": "change the headline to \"Bread worth waking up for\"",
+      "element": { "tag": "h1", "selector": "header.hero > h1", "text": "Welcome to Honey & Crumb", "html": "<h1>Welcome to Honey &amp; Crumb</h1>", "src": "src/components/Hero.jsx:5:7" },
+      "expect": { "kind": "copy", "effort": "low" },
+      "done": [{ "file": "src/components/Hero.jsx", "includes": "Bread worth waking up for" }]
+    },
+    {
+      "id": "copy-button",
+      "prompt": "make the button say \"Order ahead\"",
+      "element": { "tag": "a", "selector": "header.hero > a.button", "text": "See today's bread", "html": "<a class=\"button\" href=\"#menu\">See today's bread</a>", "src": "src/components/Hero.jsx:7:7" },
+      "expect": { "kind": "copy", "effort": "low" },
+      "done": [{ "file": "src/components/Hero.jsx", "includes": "Order ahead" }]
+    },
+    {
+      "id": "copy-section-title",
+      "prompt": "rename \"Today's bread\" to \"This morning's bakes\"",
+      "expect": { "kind": "copy", "effort": "low" },
+      "done": [{ "file": "src/components/Menu.jsx", "includes": "This morning's bakes" }]
+    },
+    {
+      "id": "copy-hours",
+      "prompt": "update the footer text to say we're open Tuesday to Sunday from 6am",
+      "expect": { "kind": "copy", "effort": "low" },
+      "done": [{ "file": "src/App.jsx", "matches": "6\\s?am" }]
+    },
+    {
+      "id": "copy-price",
+      "prompt": "change the sourdough price to \"$10\"",
+      "expect": { "kind": "copy", "effort": "low" },
+      "done": [{ "file": "src/components/Menu.jsx", "includes": "$10" }]
+    },
+    {
+      "id": "copy-eyebrow",
+      "prompt": "replace \"Neighbourhood bakery\" with \"Family bakery since 1987\"",
+      "expect": { "kind": "copy", "effort": "low" },
+      "done": [{ "file": "src/components/Hero.jsx", "includes": "Family bakery since 1987" }]
+    },
+    {
+      "id": "style-round-button",
+      "prompt": "make this button rounder",
+      "element": { "tag": "a", "selector": "header.hero > a.button", "text": "See today's bread", "html": "<a class=\"button\" href=\"#menu\">See today's bread</a>", "src": "src/components/Hero.jsx:7:7" },
+      "expect": { "kind": "style", "effort": "low" },
+      "done": [{ "changed": ["src/App.css", "src/components/Hero.jsx"] }, { "check": "page" }]
+    },
+    {
+      "id": "style-smaller-headline",
+      "prompt": "make the headline a bit smaller",
+      "element": { "tag": "h1", "selector": "header.hero > h1", "text": "Welcome to Honey & Crumb", "html": "<h1>Welcome to Honey &amp; Crumb</h1>", "src": "src/components/Hero.jsx:5:7" },
+      "expect": { "kind": "style", "effort": "low" },
+      "done": [{ "changed": ["src/App.css", "src/components/Hero.jsx"] }, { "check": "page" }]
+    },
+    {
+      "id": "style-footer-color",
+      "prompt": "use a darker brown for the footer text",
+      "expect": { "kind": "style", "effort": "low" },
+      "done": [{ "changed": ["src/App.css", "src/App.jsx"] }, { "check": "page" }]
+    },
+    {
+      "id": "style-card-spacing",
+      "prompt": "add more space between the bread cards",
+      "expect": { "kind": "style", "effort": "low" },
+      "done": [{ "changed": ["src/App.css", "src/components/Menu.jsx"] }, { "check": "page" }]
+    },
+    {
+      "id": "style-center-footer",
+      "prompt": "center the footer",
+      "expect": { "kind": "style", "effort": "low" },
+      "done": [{ "changed": ["src/App.css", "src/App.jsx"] }, { "check": "page" }]
+    },
+    {
+      "id": "style-card-shadow",
+      "prompt": "make the bread cards look softer with a light shadow",
+      "expect": { "kind": "style", "effort": "low" },
+      "done": [{ "file": "src/App.css", "matches": "box-shadow" }, { "check": "page" }]
+    },
+    {
+      "id": "component-testimonials",
+      "prompt": "add a testimonials section below the menu",
+      "expect": { "kind": "component", "effort": "medium" },
+      "done": [{ "anyFile": "src", "matches": "testimonial" }, { "check": "page" }, { "check": "build" }]
+    },
+    {
+      "id": "component-faq",
+      "prompt": "add an FAQ section with three common questions",
+      "expect": { "kind": "component", "effort": "medium" },
+      "done": [{ "anyFile": "src", "matches": "faq|frequently asked" }, { "check": "page" }, { "check": "build" }]
+    },
+    {
+      "id": "component-contact-page",
+      "prompt": "create a contact page with our address",
+      "expect": { "kind": "component", "effort": "medium" },
+      "done": [{ "anyFile": "src", "matches": "contact" }, { "check": "page" }, { "check": "build" }]
+    },
+    {
+      "id": "component-gallery",
+      "prompt": "add a small photo gallery of our breads",
+      "expect": { "kind": "component", "effort": "medium" },
+      "done": [{ "anyFile": "src", "matches": "gallery" }, { "check": "page" }, { "check": "build" }]
+    },
+    {
+      "id": "component-banner",
+      "prompt": "put a banner at the top announcing our new rye",
+      "expect": { "kind": "component", "effort": "medium" },
+      "done": [{ "anyFile": "src", "matches": "banner" }, { "check": "page" }, { "check": "build" }]
+    },
+    {
+      "id": "feature-database",
+      "prompt": "save messages from a contact form to a database",
+      "expect": { "kind": "feature", "effort": "high" },
+      "done": [{ "anyFile": "src", "matches": "<form" }, { "check": "page" }, { "check": "build" }]
+    },
+    {
+      "id": "feature-login",
+      "prompt": "let customers log in to see their past orders",
+      "expect": { "kind": "feature", "effort": "high" },
+      "done": [{ "anyFile": "src", "matches": "log ?in|sign ?in" }, { "check": "page" }, { "check": "build" }]
+    },
+    {
+      "id": "feature-stripe",
+      "prompt": "add Stripe checkout so people can preorder bread",
+      "expect": { "kind": "feature", "effort": "high" },
+      "done": [{ "anyFile": "src", "matches": "preorder|pre-order|checkout" }, { "check": "page" }, { "check": "build" }]
+    },
+    {
+      "id": "feature-email",
+      "prompt": "email me whenever someone sends the contact form",
+      "expect": { "kind": "feature", "effort": "high" },
+      "done": [{ "check": "page" }, { "check": "build" }]
+    },
+    {
+      "id": "bug-blank-page",
+      "prompt": "the page is blank since the last change",
+      "setup": [{ "file": "src/App.jsx", "replace": ["<Menu />", "<Menus />"] }],
+      "expect": { "kind": "bug", "effort": "high" },
+      "done": [{ "file": "src/App.jsx", "excludes": "<Menus />" }, { "check": "page" }, { "check": "build" }]
+    },
+    {
+      "id": "bug-type-error",
+      "prompt": "I get this error: TypeError: Cannot read properties of undefined (reading 'map')",
+      "setup": [
+        { "file": "src/components/Menu.jsx", "replace": ["export default function Menu() {", "export default function Menu({ items }) {"] },
+        { "file": "src/components/Menu.jsx", "replace": ["{breads.map(", "{items.map("] }
+      ],
+      "expect": { "kind": "bug", "effort": "high" },
+      "done": [{ "check": "page" }, { "check": "build" }, { "file": "src/components/Menu.jsx", "matches": "map\\(" }]
+    },
+    {
+      "id": "bug-button-link",
+      "prompt": "clicking the See today's bread button doesn't work, it should jump to the menu",
+      "setup": [{ "file": "src/components/Hero.jsx", "replace": ["href=\"#menu\"", "href=\"#menus\""] }],
+      "expect": { "kind": "bug", "effort": "high" },
+      "done": [{ "file": "src/components/Hero.jsx", "includes": "href=\"#menu\"" }]
+    },
+    {
+      "id": "bug-mobile-layout",
+      "prompt": "the bread cards are broken on small screens",
+      "setup": [{ "file": "src/App.css", "replace": ["repeat(auto-fit, minmax(220px, 1fr))", "repeat(3, 420px)"] }],
+      "expect": { "kind": "bug", "effort": "high" },
+      "done": [{ "file": "src/App.css", "excludes": "repeat(3, 420px)" }, { "check": "page" }]
+    },
+    {
+      "id": "new-app-booking",
+      "prompt": "make me a booking app for my salon",
+      "expect": { "kind": "new-app", "effort": "xhigh" },
+      "done": [{ "anyFile": "src", "matches": "book|appointment" }, { "check": "page" }, { "check": "build" }]
+    },
+    {
+      "id": "new-app-yoga",
+      "prompt": "build a new website for my yoga studio from scratch",
+      "expect": { "kind": "new-app", "effort": "xhigh" },
+      "done": [{ "anyFile": "src", "matches": "yoga" }, { "check": "page" }, { "check": "build" }]
+    },
+    {
+      "id": "question-menu",
+      "prompt": "what does the menu section show?",
+      "expect": { "kind": "question", "effort": "low" },
+      "done": [{ "unchanged": true }]
+    },
+    {
+      "id": "general-premium",
+      "prompt": "make the whole site feel more premium",
+      "expect": { "kind": "general", "effort": "medium" },
+      "done": [{ "changed": ["src/App.css", "src/App.jsx", "src/components/Hero.jsx", "src/components/Menu.jsx"] }, { "check": "page" }, { "check": "build" }]
+    },
+    {
+      "id": "vague-picked",
+      "prompt": "hmm, this one feels off",
+      "element": { "tag": "p", "selector": "header.hero > p.lede", "text": "Small-batch bread, baked every morning with local honey.", "html": "<p class=\"lede\">Small-batch bread, baked every morning with local honey.</p>", "src": "src/components/Hero.jsx:6:7" },
+      "expect": { "kind": "style", "effort": "low" },
+      "done": [{ "check": "page" }]
+    }
+  ]
+}

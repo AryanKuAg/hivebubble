@@ -1,4 +1,4 @@
-import type { Effort, ToolAction, ToolEvent } from '../../core/src/types';
+import type { Check, Effort, ServerEvent, ToolAction, ToolEvent } from '../../core/src/types';
 import { Effects, type Fx } from './effects';
 import { Flyer, castOf, type Personality } from './flight';
 import { BEE } from './icons';
@@ -6,6 +6,9 @@ import { isVisible, outermost, pageHasTags, resolveTargets, spread } from './tar
 import type { PageWatcher } from './watch';
 
 type Point = { x: number; y: number };
+type CheckEvent = Extract<ServerEvent, { type: 'check' }>;
+
+const CHECK_NAMES: Record<Check, string> = { page: 'Page', typecheck: 'Types', build: 'Build' };
 
 const VERB: Record<ToolAction, string> = {
   read: 'Reading',
@@ -158,6 +161,56 @@ export class Swarm {
     if (this.bees.length === 0) this.launch(SWARM_SIZE.medium);
     if (e.phase === 'start') this.start(e);
     else this.end(e);
+  }
+
+  /**
+   * Hivebubble's own checks (page, types, build) are commands, so a bee runs
+   * each one at the workbench (README §7), then shows how it went.
+   */
+  check(e: CheckEvent): void {
+    if (this.bees.length === 0) this.launch(SWARM_SIZE.medium);
+    const id = `check-${e.check}`;
+    if (e.phase === 'start') {
+      this.setThinking(false);
+      const bee = this.nextBee();
+      if (bee.step) this.retire(bee.step);
+      const now = performance.now();
+      const step: Step = {
+        id,
+        event: { type: 'tool', id, phase: 'start', action: 'other', tool: 'check' },
+        bee,
+        targets: [],
+        bench: true,
+        hop: 0,
+        hopAt: now,
+        fx: [],
+        startedAt: now,
+        ended: false,
+        holdUntil: 0,
+      };
+      this.steps.set(id, step);
+      bee.step = step;
+      bee.el.classList.remove('error', 'done', 'thinking', 'building');
+      this.setLabel(bee, e.label);
+      if (!bee.flyer) this.takeOff(bee);
+      this.sendTo(bee, this.spotFor(bee));
+      this.trayAdd(e.label, 'other', true);
+      this.o.onActivity(e.label);
+      this.ensureLoop();
+      return;
+    }
+    const step = this.steps.get(id);
+    if (!step) return;
+    step.ended = true;
+    const r = e.result;
+    const name = CHECK_NAMES[e.check];
+    if (step.bee.step === step) {
+      step.bee.el.classList.toggle('done', Boolean(r?.ok && !r.skipped));
+      step.bee.el.classList.toggle('error', Boolean(r && !r.ok));
+      this.setLabel(step.bee, !r || r.skipped ? `${name} check skipped` : r.ok ? `${name} OK` : `${name} check failed`);
+    }
+    step.holdUntil = performance.now() + 1200;
+    if (this.inFlight() === 0) this.quietSince = performance.now();
   }
 
   /** The dev server's error overlay appeared (or went away): a bee turns amber and points at it. */

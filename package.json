@@ -16,6 +16,7 @@
     "demo": "node packages/core/dist/cli.js examples/vite-react --mock-agent",
     "desktop": "pnpm build && pnpm --filter @hivebubble/desktop dev",
     "desktop:build": "pnpm build && pnpm --filter @hivebubble/desktop build",
-    "smoke": "node packages/core/scripts/smoke.mjs http://localhost:4321 examples/vite-react"
+    "smoke": "node packages/core/scripts/smoke.mjs http://localhost:4321 examples/vite-react",
+    "bench": "node packages/core/scripts/bench.mjs"
   }
 }

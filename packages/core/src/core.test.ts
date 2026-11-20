@@ -115,7 +115,7 @@ describe('checkpoints', () => {
     writeFileSync(path.join(dir, 'src/New.jsx'), 'created');
     cp.snapshot(path.join(dir, 'src/App.jsx')); // second snapshot keeps the first original
     assert.equal(cp.commit(), true);
-    assert.deepEqual(cp.undo().sort(), ['src/App.jsx', 'src/New.jsx']);
+    assert.deepEqual(cp.undo().files.sort(), ['src/App.jsx', 'src/New.jsx']);
     assert.equal(readFileSync(path.join(dir, 'src/App.jsx'), 'utf8'), 'old');
     assert.equal(existsSync(path.join(dir, 'src/New.jsx')), false);
     assert.equal(cp.canUndo(), false);

@@ -49,6 +49,53 @@ async function refresh() {
   return s;
 }
 
+// ---- spending: the engine's ledger, added up with the local calendar ----
+const money = (usd) => `$${usd > 0 && usd < 0.01 ? usd.toFixed(3) : usd.toFixed(2)}`;
+
+function dayKey(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+async function refreshSpending() {
+  let data;
+  try {
+    data = await invoke('get_spending');
+  } catch {
+    return;
+  }
+  const cap = Number(data.settings?.dailyCapUsd) > 0 ? Number(data.settings.dailyCapUsd) : 5;
+  const today = data.days?.[dayKey()] ?? { usd: 0, tasks: 0 };
+  const month = dayKey().slice(0, 7);
+  let monthUsd = 0;
+  let monthTasks = 0;
+  for (const [key, day] of Object.entries(data.days ?? {})) {
+    if (!key.startsWith(month)) continue;
+    monthUsd += Number(day.usd) || 0;
+    monthTasks += Number(day.tasks) || 0;
+  }
+  $('spend-today').textContent = `Today: ${money(today.usd)} of ${money(cap)} (${today.tasks} task${today.tasks === 1 ? '' : 's'})`;
+  $('spend-today').classList.toggle('over', today.usd >= cap);
+  $('spend-month').textContent = `This month: ${money(monthUsd)} across ${monthTasks} task${monthTasks === 1 ? '' : 's'}`;
+  if (document.activeElement !== $('cap')) $('cap').value = String(cap);
+}
+
+$('cap-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const usd = Number($('cap').value);
+  try {
+    await invoke('set_daily_cap', { usd });
+    $('cap-msg').textContent = 'Saved. It applies from the next task.';
+  } catch (err) {
+    $('cap-msg').textContent = String(err);
+  }
+  void refreshSpending();
+});
+
+// The engine writes the ledger after each task; keep the numbers fresh.
+setInterval(() => {
+  if (!document.hidden) void refreshSpending();
+}, 10000);
+
 function showHome(error) {
   $('home').hidden = false;
   $('running').hidden = true;
@@ -196,6 +243,7 @@ async function runSelftest(settings) {
 }
 
 (async () => {
+  void refreshSpending();
   const settings = await refresh();
   selftest = await invoke('selftest_enabled');
   if (settings.running) showRunning(settings.running);

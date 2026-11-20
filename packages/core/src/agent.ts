@@ -4,6 +4,7 @@ import path from 'node:path';
 import { query, type HookCallback } from '@anthropic-ai/claude-agent-sdk';
 import Anthropic from '@anthropic-ai/sdk';
 import type { Checkpoints } from './checkpoints.js';
+import { CostMeter, type TokenTotals } from './cost.js';
 import { Locator, toolFile } from './locate.js';
 import { insideProject, projectRelative } from './paths.js';
 import { SYSTEM_APPEND } from './prompt.js';
@@ -35,7 +36,9 @@ export interface AgentRequest {
 export interface AgentResult {
   ok: boolean;
   summary: string;
+  /** The real cost from the SDK's result, or the live estimate when the task was stopped. */
   costUsd?: number;
+  tokens?: TokenTotals;
   sessionId?: string;
 }
 
@@ -184,6 +187,18 @@ export async function runClaude(ctx: AgentContext, req: AgentRequest): Promise<A
     return {};
   };
 
+  // The live cost meter: an estimate from each response's usage, sent at most every 300 ms.
+  const meter = new CostMeter();
+  let sentUsd = 0;
+  let sentAt = 0;
+  const reportCost = (force = false) => {
+    const usd = meter.total;
+    if (usd === sentUsd || (!force && Date.now() - sentAt < 300)) return;
+    sentUsd = usd;
+    sentAt = Date.now();
+    ctx.emit({ type: 'cost', usd });
+  };
+
   let sessionId: string | undefined;
   try {
     const run = query({
@@ -219,17 +234,23 @@ export async function runClaude(ctx: AgentContext, req: AgentRequest): Promise<A
 
     for await (const msg of run) {
       if ('session_id' in msg && typeof msg.session_id === 'string') sessionId = msg.session_id;
+      if (msg.type === 'assistant') {
+        meter.add(msg.message);
+        reportCost();
+      }
       if (msg.type === 'assistant' && msg.parent_tool_use_id === null) {
         for (const block of msg.message.content) {
           if (block.type === 'text' && block.text.trim()) ctx.emit({ type: 'say', role: 'assistant', text: block.text.trim() });
         }
       }
       if (msg.type === 'result') {
+        reportCost(true);
         if (msg.subtype === 'success') {
           return {
             ok: !msg.is_error,
             summary: msg.is_error ? friendlyError(msg.result) : msg.result,
             costUsd: msg.total_cost_usd,
+            tokens: meter.tokens(),
             sessionId,
           };
         }
@@ -239,12 +260,14 @@ export async function runClaude(ctx: AgentContext, req: AgentRequest): Promise<A
             : msg.subtype === 'error_max_turns'
               ? 'Stopped after too many steps. Try a smaller request.'
               : friendlyError(msg.errors.join(' '));
-        return { ok: false, summary: reason, costUsd: msg.total_cost_usd, sessionId };
+        return { ok: false, summary: reason, costUsd: msg.total_cost_usd, tokens: meter.tokens(), sessionId };
       }
     }
-    return { ok: false, summary: 'Claude stopped without an answer.', sessionId };
+    return { ok: false, summary: 'Claude stopped without an answer.', costUsd: meter.total, tokens: meter.tokens(), sessionId };
   } catch (err) {
-    if (ctx.abort.signal.aborted) return { ok: false, summary: 'Stopped.', sessionId };
-    return { ok: false, summary: friendlyError(err instanceof Error ? err.message : String(err)), sessionId };
+    // No result message: count what the meter saw, so stopped tasks still reach the ledger.
+    const spent = { costUsd: meter.total, tokens: meter.tokens(), sessionId };
+    if (ctx.abort.signal.aborted) return { ok: false, summary: 'Stopped.', ...spent };
+    return { ok: false, summary: friendlyError(err instanceof Error ? err.message : String(err)), ...spent };
   }
 }

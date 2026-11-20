@@ -1,6 +1,6 @@
-import type { AgentKind, ChatEntry, Effort, Mode, PickedElement, Route, ServerEvent } from '../../core/src/types';
+import type { AgentKind, ChatEntry, CheckResult, Effort, Mode, PickedElement, Route, ServerEvent, SpendSummary } from '../../core/src/types';
 import { Connection } from './connection';
-import { BEE, CLOSE, HIVE, HIVE_ENTRANCE, PICK, SEND, STOP, UNDO } from './icons';
+import { BEE, BULB, CLOSE, HIVE, HIVE_ENTRANCE, PICK, SEND, STOP, UNDO } from './icons';
 import { describeElement, startPicker } from './picker';
 import { SWARM_SIZE, Swarm } from './swarm';
 import { CSS } from './styles';
@@ -16,7 +16,7 @@ const TEMPLATE = `
   <div class="pick-hint" hidden>Click the part of the page you want to change · Esc to cancel</div>
   <section class="panel" role="dialog" aria-label="Hivebubble chat" hidden>
     <header>
-      <div class="brand">${HIVE}<span>Hivebubble</span><span class="chip agent" hidden></span></div>
+      <div class="brand">${HIVE}<span>Hivebubble</span><span class="chip agent" hidden></span><span class="chip spend" hidden></span></div>
       <span class="conn" hidden>Reconnecting…</span>
       <button class="icon-btn undo" type="button" disabled title="Undo the last change">${UNDO}<span class="txt">Undo</span></button>
       <button class="icon-btn close" type="button" aria-label="Close chat">${CLOSE}</button>
@@ -28,6 +28,7 @@ const TEMPLATE = `
       <textarea rows="2" placeholder="Tell the hive what to change…" aria-label="Message"></textarea>
       <div class="row">
         <button class="icon-btn pick" type="button" title="Pick an element on the page">${PICK}<span class="txt">Pick</span></button>
+        <button class="icon-btn think" type="button" aria-pressed="false" title="Think harder: the deepest effort, for this message only. Slower, and it costs more.">${BULB}<span class="txt">Harder</span></button>
         <div class="modes" role="group" aria-label="Effort">
           <button type="button" data-mode="quick" title="Faster, one level less effort">Quick</button>
           <button type="button" data-mode="balanced" title="Let the router decide">Auto</button>
@@ -39,6 +40,8 @@ const TEMPLATE = `
   </section>
   <button class="launcher" type="button" aria-label="Open Hivebubble chat">${HIVE}<span class="idle">${BEE}</span></button>
 </div>`;
+
+const CHECK_NAMES: Record<CheckResult['check'], string> = { page: 'page', typecheck: 'types', build: 'build' };
 
 const store = {
   get(key: string): string | null {
@@ -57,6 +60,8 @@ const store = {
   },
 };
 
+const money = (usd: number) => `$${usd > 0 && usd < 0.01 ? usd.toFixed(3) : usd.toFixed(2)}`;
+
 export function mount(): void {
   const host = document.createElement('hivebubble-root');
   document.documentElement.appendChild(host);
@@ -71,17 +76,23 @@ export function mount(): void {
   const sendBtn = q<HTMLButtonElement>('.send');
   const undoBtn = q<HTMLButtonElement>('.undo');
   const pickBtn = q<HTMLButtonElement>('.pick');
+  const thinkBtn = q<HTMLButtonElement>('.think');
   const pickedChip = q<HTMLElement>('.picked');
   const banner = q<HTMLElement>('.banner');
   const agentChip = q<HTMLElement>('.agent');
+  const spendChip = q<HTMLElement>('.spend');
   const conn = q<HTMLElement>('.conn');
   const pickBox = q<HTMLElement>('.pick-box');
   const pickHint = q<HTMLElement>('.pick-hint');
 
   let busy = false;
+  let agent: AgentKind = 'mock';
   let picked: PickedElement | null = null;
   let stopPicking: (() => void) | null = null;
   let working: HTMLElement | null = null;
+  let activity = 'The hive is working';
+  let liveCost: number | null = null;
+  let thinkHarder = false;
   let mode: Mode = (store.get('mode') as Mode) || 'balanced';
   let taskEffort: Effort = 'medium';
 
@@ -105,7 +116,8 @@ export function mount(): void {
     avoid: () => (panel.hidden ? null : panel.getBoundingClientRect()),
     watcher,
     onActivity: (text) => {
-      if (working) working.querySelector('span')!.textContent = `${text}…`;
+      activity = text;
+      renderWorking();
     },
   });
 
@@ -122,26 +134,60 @@ export function mount(): void {
     messages.append(empty);
   };
 
-  function addMessage(role: ChatEntry['role'], text: string, route?: Route, error = false): void {
+  function append(el: HTMLElement): void {
     clearEmpty();
+    messages.append(el);
+    if (working) messages.append(working);
+    scroll();
+  }
+
+  function addMessage(role: ChatEntry['role'], text: string, route?: Route, error = false): void {
     const el = document.createElement('div');
     el.className = `msg ${role}${error ? ' error' : ''}`;
     el.textContent = text;
-    messages.append(el);
+    append(el);
     if (route) {
       const chip = document.createElement('div');
       chip.className = 'route';
       chip.textContent = `${route.label} · ${route.effort} effort`;
       chip.title = route.reason;
-      messages.append(chip);
+      append(chip);
     }
-    if (working) messages.append(working);
-    scroll();
+  }
+
+  /** A message with buttons. Choosing one disables them all. */
+  function addCard(text: string, buttons: Array<{ label: string; primary?: boolean; onClick: () => void }>): HTMLElement {
+    const card = document.createElement('div');
+    card.className = 'card';
+    const p = document.createElement('p');
+    p.textContent = text;
+    const row = document.createElement('div');
+    row.className = 'actions';
+    for (const b of buttons) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = b.primary ? 'primary' : '';
+      btn.textContent = b.label;
+      btn.addEventListener('click', () => {
+        row.querySelectorAll('button').forEach((x) => (x.disabled = true));
+        b.onClick();
+      });
+      row.append(btn);
+    }
+    card.append(p, row);
+    append(card);
+    return card;
   }
 
   function lastText(): string {
     const msgs = messages.querySelectorAll('.msg');
     return msgs.length ? (msgs[msgs.length - 1].textContent ?? '') : '';
+  }
+
+  function renderWorking(): void {
+    if (!working) return;
+    const cost = agent === 'claude' && liveCost !== null ? ` · ${money(liveCost)}` : '';
+    working.querySelector('span')!.textContent = `${activity}…${cost}`;
   }
 
   function setBusy(next: boolean): void {
@@ -153,8 +199,11 @@ export function mount(): void {
     if (busy && !working) {
       working = document.createElement('div');
       working.className = 'working';
-      working.innerHTML = `${BEE}<span>The hive is working…</span>`;
+      working.innerHTML = `${BEE}<span></span>`;
+      activity = 'The hive is working';
+      liveCost = null;
       messages.append(working);
+      renderWorking();
       scroll();
     }
     if (!busy && working) {
@@ -193,16 +242,44 @@ export function mount(): void {
     shadow.querySelectorAll<HTMLButtonElement>('.modes button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === next)));
   }
 
-  function setAgent(agent: AgentKind): void {
-    const noKey = agent === 'missing-key' || agent === 'invalid-key';
-    agentChip.hidden = agent === 'claude';
+  function setThinkHarder(on: boolean): void {
+    thinkHarder = on;
+    thinkBtn.setAttribute('aria-pressed', String(on));
+  }
+
+  function setAgent(next: AgentKind): void {
+    agent = next;
+    const noKey = next === 'missing-key' || next === 'invalid-key';
+    agentChip.hidden = next === 'claude';
     agentChip.classList.toggle('off', noKey);
-    agentChip.textContent = agent === 'mock' ? 'Demo mode' : agent === 'missing-key' ? 'No API key' : agent === 'invalid-key' ? 'Key rejected' : '';
+    agentChip.textContent = next === 'mock' ? 'Demo mode' : next === 'missing-key' ? 'No API key' : next === 'invalid-key' ? 'Key rejected' : '';
     banner.hidden = !noKey;
     banner.textContent =
-      agent === 'invalid-key'
+      next === 'invalid-key'
         ? 'Anthropic rejected your API key. Paste a working key in the Hivebubble app, then restart the project.'
         : 'Add your Anthropic API key in the Hivebubble app (or ANTHROPIC_API_KEY in .env.local) so Claude can make changes.';
+  }
+
+  function setSpend(spend: SpendSummary): void {
+    spendChip.hidden = agent !== 'claude';
+    spendChip.textContent = `${money(spend.todayUsd)} today`;
+    spendChip.classList.toggle('off', spend.remainingUsd < 0.01);
+    spendChip.title =
+      `Today: ${money(spend.todayUsd)} of your ${money(spend.dailyCapUsd)} daily limit (${spend.todayTasks} task${spend.todayTasks === 1 ? '' : 's'}). ` +
+      `This month: ${money(spend.monthUsd)} across ${spend.monthTasks} task${spend.monthTasks === 1 ? '' : 's'}.`;
+  }
+
+  function checkBadges(results: CheckResult[]): HTMLElement {
+    const row = document.createElement('span');
+    row.className = 'checks';
+    for (const r of results) {
+      const badge = document.createElement('span');
+      badge.className = `check ${r.skipped ? 'skipped' : r.ok ? 'ok' : 'failed'}`;
+      badge.textContent = `${r.skipped ? '–' : r.ok ? '✓' : '✗'} ${CHECK_NAMES[r.check]}`;
+      badge.title = r.skipped ? `Skipped: ${r.skipped}` : r.ok ? `The ${CHECK_NAMES[r.check]} check passed.` : (r.detail ?? 'Failed.');
+      row.append(badge);
+    }
+    return row;
   }
 
   // ---- connection --------------------------------------------------------
@@ -215,9 +292,10 @@ export function mount(): void {
       case 'hello':
         messages.replaceChildren();
         working = null;
-        for (const entry of e.history) addMessage(entry.role, entry.text, entry.route);
         setAgent(e.agent);
+        for (const entry of e.history) addMessage(entry.role, entry.text, entry.route);
         swarm.sourceTags = e.sourceTags;
+        setSpend(e.spend);
         setBusy(e.busy);
         if (e.busy) swarm.launch(SWARM_SIZE[taskEffort]);
         undoBtn.disabled = !e.canUndo;
@@ -237,16 +315,46 @@ export function mount(): void {
       case 'tool':
         swarm.tool(e);
         break;
+      case 'check':
+        swarm.check(e);
+        break;
+      case 'cost':
+        liveCost = e.usd;
+        renderWorking();
+        break;
+      case 'retry': {
+        addMessage('system', `↻ ${e.reason}`);
+        taskEffort = e.route.effort;
+        break;
+      }
+      case 'confirm': {
+        const { route, estimate, spend } = e;
+        const guess = estimate.basis === 'typical' ? ' (a rough guess until Hivebubble has seen a few of yours)' : ', based on your past tasks like it';
+        const left = `You have ${money(spend.remainingUsd)} left of today's ${money(spend.dailyCapUsd)} limit.`;
+        addCard(`This is a big job (${route.label} effort). It usually costs ${money(estimate.lowUsd)}–${money(estimate.highUsd)}${guess}. ${left} Start it?`, [
+          { label: 'Start', primary: true, onClick: () => connection.send({ type: 'confirm', id: e.id, ok: true }) },
+          { label: 'Not now', onClick: () => connection.send({ type: 'confirm', id: e.id, ok: false }) },
+        ]);
+        if (panel.hidden) setOpen(true);
+        break;
+      }
+      case 'paused':
+      case 'spend':
+        setSpend(e.spend);
+        break;
       case 'done': {
         swarm.finish();
         undoBtn.disabled = !e.canUndo;
         if (!e.ok && e.summary && lastText() !== e.summary) addMessage('system', e.summary, undefined, true);
+        if (e.durationMs === 0 && !e.checks) break; // Never started (paused, declined, no key).
         const meta = document.createElement('div');
         meta.className = 'meta';
         const parts = [`${e.ok ? 'Done' : 'Stopped'} in ${(e.durationMs / 1000).toFixed(1)}s`];
-        if (e.costUsd !== undefined) parts.push(`$${e.costUsd.toFixed(3)}`);
+        if (e.costUsd !== undefined) parts.push(money(e.costUsd));
+        if (e.attempts && e.attempts > 1) parts.push(`${e.attempts} tries`);
         meta.append(document.createTextNode(parts.join(' · ')));
-        if (e.ok && e.canUndo) {
+        if (e.checks?.length) meta.append(checkBadges(e.checks));
+        if (e.canUndo) {
           const b = document.createElement('button');
           b.type = 'button';
           b.className = 'icon-btn';
@@ -254,14 +362,21 @@ export function mount(): void {
           b.addEventListener('click', () => connection.send({ type: 'undo' }));
           meta.append(b);
         }
-        clearEmpty();
-        messages.append(meta);
-        scroll();
+        append(meta);
         break;
       }
       case 'undone':
         undoBtn.disabled = !e.canUndo;
         break;
+      case 'undo-conflict': {
+        const names = e.files.map((f) => f.split('/').pop()).join(', ');
+        addCard(`${names} changed after that task (maybe by hand). Undo anyway? Those later changes would be lost.`, [
+          { label: 'Undo anyway', primary: true, onClick: () => connection.send({ type: 'undo', force: true }) },
+          { label: 'Keep them', onClick: () => undefined },
+        ]);
+        if (panel.hidden) setOpen(true);
+        break;
+      }
       case 'error':
         addMessage('system', e.message, undefined, true);
         break;
@@ -269,6 +384,20 @@ export function mount(): void {
         break;
     }
   }
+
+  // Errors on the page while a task runs go to the engine: the page check counts
+  // the ones that come from files the task changed.
+  window.addEventListener('error', (ev) => {
+    if (!busy) return;
+    const where = ev.filename ? `${ev.filename}:${ev.lineno}:${ev.colno}` : '';
+    const stack = ev.error instanceof Error && ev.error.stack ? ev.error.stack : '';
+    connection.send({ type: 'page-error', message: ev.message || String(ev.error), source: `${where}\n${stack}`.trim() });
+  });
+  window.addEventListener('unhandledrejection', (ev) => {
+    if (!busy) return;
+    const reason = ev.reason instanceof Error ? ev.reason : null;
+    connection.send({ type: 'page-error', message: reason ? reason.message : String(ev.reason), source: reason?.stack });
+  });
 
   // ---- actions -----------------------------------------------------------
   function send(): void {
@@ -278,8 +407,10 @@ export function mount(): void {
     }
     const text = textarea.value.trim();
     if (!text) return;
-    connection.send({ type: 'chat', text, element: picked ?? undefined, mode });
+    connection.send({ type: 'chat', text, element: picked ?? undefined, mode, thinkHarder: thinkHarder || undefined });
     textarea.value = '';
+    // Think harder applies to one message.
+    setThinkHarder(false);
   }
 
   function beginPick(): void {
@@ -308,6 +439,7 @@ export function mount(): void {
   sendBtn.addEventListener('click', send);
   undoBtn.addEventListener('click', () => connection.send({ type: 'undo' }));
   pickBtn.addEventListener('click', beginPick);
+  thinkBtn.addEventListener('click', () => setThinkHarder(!thinkHarder));
   q<HTMLButtonElement>('.unpick').addEventListener('click', () => setPicked(null));
   shadow.querySelectorAll<HTMLButtonElement>('.modes button').forEach((b) =>
     b.addEventListener('click', () => setMode(b.dataset.mode as Mode)),

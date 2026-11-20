@@ -170,6 +170,61 @@ fn clear_api_key() -> Result<(), String> {
     }
 }
 
+/// Hivebubble's own folder, shared with the engine: the spending ledger and the
+/// settings (daily limit, per-task limit). Same rule as the engine's `hivebubbleHome()`.
+fn hivebubble_home() -> PathBuf {
+    if let Ok(dir) = std::env::var("HIVEBUBBLE_HOME") {
+        if !dir.is_empty() {
+            return PathBuf::from(dir);
+        }
+    }
+    let home = std::env::var("HOME").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("."));
+    if cfg!(target_os = "macos") {
+        home.join("Library/Application Support/Hivebubble")
+    } else {
+        home.join(".hivebubble")
+    }
+}
+
+fn read_json(file: &Path) -> serde_json::Value {
+    std::fs::read_to_string(file)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| serde_json::json!({}))
+}
+
+/// The raw ledger and settings. The window adds the days up itself, so "today"
+/// follows the person's own calendar.
+#[tauri::command]
+fn get_spending() -> serde_json::Value {
+    let home = hivebubble_home();
+    let ledger = read_json(&home.join("spend.json"));
+    serde_json::json!({
+        "settings": read_json(&home.join("settings.json")),
+        "days": ledger.get("days").cloned().unwrap_or_else(|| serde_json::json!({})),
+    })
+}
+
+/// Save the daily limit. The engine reads it before every task, so it applies right away.
+#[tauri::command]
+fn set_daily_cap(usd: f64) -> Result<(), String> {
+    if !usd.is_finite() || !(0.5..=10_000.0).contains(&usd) {
+        return Err("Choose a daily limit between $0.50 and $10,000.".into());
+    }
+    let home = hivebubble_home();
+    std::fs::create_dir_all(&home).map_err(|e| e.to_string())?;
+    let file = home.join("settings.json");
+    let mut settings = read_json(&file);
+    if !settings.is_object() {
+        settings = serde_json::json!({});
+    }
+    settings["dailyCapUsd"] = serde_json::json!((usd * 100.0).round() / 100.0);
+    let text = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
+    let tmp = home.join("settings.json.tmp");
+    std::fs::write(&tmp, format!("{text}\n")).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &file).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn pick_folder(app: AppHandle) -> Option<String> {
     app.dialog().file().set_title("Choose your project folder").blocking_pick_folder().map(|p| p.to_string())
@@ -265,6 +320,8 @@ fn main() {
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             get_settings,
+            get_spending,
+            set_daily_cap,
             save_api_key,
             clear_api_key,
             pick_folder,

@@ -2,6 +2,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import type http from 'node:http';
 import { createRequire } from 'node:module';
 import { verifyApiKey } from './agent.js';
+import { Checker } from './checks.js';
+import { sourceFiles } from './mockAgent.js';
 import { ManagedProcess, findFreePort, waitForPort } from './processes.js';
 import { detectProject, devCommand, frameworkLabel, installCommand } from './project.js';
 import { createProxy } from './proxy.js';
@@ -68,16 +70,21 @@ export async function startHivebubble(opts: StartOptions): Promise<Running> {
   if (agent === 'missing-key') r.log('hivebubble', 'No Anthropic API key found. The bubble will open, but Claude cannot make changes until you add a key.');
   if (agent === 'mock') r.log('hivebubble', 'Demo mode: a local stand-in agent that can only change text. No Claude calls.');
 
+  let devPort: number | null = null;
+  const log = (line: string) => r.log('hivebubble', line);
+  const checker = new Checker(info, () => devPort, log);
   const session = new Session({
     cwd: info.dir,
     project,
     agent,
     apiKey: opts.apiKey,
-    maxBudgetUsd: opts.maxBudgetUsd ?? 2,
-    log: (line) => r.log('hivebubble', line),
+    maxBudgetUsd: opts.maxBudgetUsd,
+    log,
+    checker,
+    // Only page files count: a project with nothing but config gets built from the start.
+    isEmpty: () => sourceFiles(info.dir, 20).filter((f) => !/(?:^|[\\/])(?:index\.html|[\w.-]*config\.[cm]?[jt]s)$/.test(f)).length === 0,
   });
 
-  let devPort: number | null = null;
   let stopping = false;
   const server = createProxy({
     target: () => devPort,
@@ -150,7 +157,9 @@ export async function startHivebubble(opts: StartOptions): Promise<Running> {
     throw new Error(stillRunning ? 'The dev server did not start within 2 minutes.' : 'The dev server stopped while starting. The log above says why.');
   }
   devPort = started.port;
-  r.status('ready', `Your site is live at ${url}`, { url, devPort, agent, project, sourceTags: session.sourceTags });
+  r.status('ready', `Your site is live at ${url}`, { url, devPort, agent, project, sourceTags: session.sourceTags, spend: session.spend() });
+  // Baselines for the type and build checks, so errors that were already there never count against a task.
+  checker.warmUp();
 
   void dev.exited.then((code) => {
     if (stopping) return;

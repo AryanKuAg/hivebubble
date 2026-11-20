@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { projectDataDir } from './home.js';
 import type { ProjectInfo } from './project.js';
 
 /**
@@ -90,10 +91,7 @@ export function planSourceTags(info: ProjectInfo, pluginUrl: () => string = sour
   const blocker = sourceTagsBlocker(info);
   if (blocker) return { on: false, why: blocker };
   try {
-    const dir = path.join(info.dir, HIVEBUBBLE_DIR);
-    mkdirSync(dir, { recursive: true });
-    const ignore = path.join(dir, '.gitignore');
-    if (!existsSync(ignore)) writeFileSync(ignore, '# Hivebubble\'s own files for this project.\n*\n');
+    const dir = projectDataDir(info.dir);
     writeFileSync(path.join(dir, VITE_WRAPPER), viteWrapperSource(info.dir, findViteConfig(info.dir), pluginUrl()));
     return { on: true, args: ['--config', `${HIVEBUBBLE_DIR}/${VITE_WRAPPER}`] };
   } catch (err) {
