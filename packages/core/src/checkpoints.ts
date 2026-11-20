@@ -1,5 +1,8 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { insideProject } from './paths.js';
+
+export { isInside } from './paths.js';
 
 /**
  * Undo points. Before any file is edited or written during a task, its
@@ -20,7 +23,7 @@ export class Checkpoints {
   snapshot(filePath: string): void {
     if (!this.current) return;
     const abs = path.resolve(this.root, filePath);
-    if (!isInside(this.root, abs)) throw new Error(`Refusing to touch a file outside the project: ${filePath}`);
+    if (!insideProject(this.root, abs)) throw new Error(`Refusing to touch a file outside the project: ${filePath}`);
     if (this.current.has(abs)) return;
     this.current.set(abs, existsSync(abs) ? readFileSync(abs, 'utf8') : null);
   }
@@ -51,9 +54,4 @@ export class Checkpoints {
     }
     return files;
   }
-}
-
-export function isInside(root: string, target: string): boolean {
-  const rel = path.relative(path.resolve(root), path.resolve(target));
-  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 }

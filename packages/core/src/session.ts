@@ -29,6 +29,8 @@ export class Session {
   private abort: AbortController | null = null;
   private lastFailed = false;
   private claudeSession: string | undefined;
+  /** Whether the dev server stamps data-hivebubble-src on elements (set once it has started). */
+  sourceTags = false;
 
   constructor(private readonly opts: SessionOptions) {
     this.checkpoints = new Checkpoints(opts.cwd);
@@ -43,6 +45,7 @@ export class Session {
       busy: this.busy,
       canUndo: this.checkpoints.canUndo(),
       history: this.history,
+      sourceTags: this.sourceTags,
     });
     ws.on('message', (data) => {
       let msg: ClientMessage;

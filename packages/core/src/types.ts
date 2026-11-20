@@ -33,6 +33,28 @@ export type ClientMessage =
 
 export type ToolAction = 'read' | 'search' | 'edit' | 'write' | 'other';
 
+/** A place a search found its pattern. */
+export interface SearchHit {
+  file: string;
+  line?: number;
+}
+
+/**
+ * Where on the page an agent step lands, worked out from the real tool call.
+ * The bubble matches it against the `data-hivebubble-src` tags on the page.
+ */
+export interface ToolWhere {
+  /**
+   * The lines of `file` the step reads or changes (1-based, inclusive). For an
+   * edit, the lines before the change on 'start' and after it on 'end'.
+   */
+  lines?: [number, number];
+  /** For stylesheets: selectors of the rules involved, ready for querySelectorAll. */
+  selectors?: string[];
+  /** For searches, on 'end': where the matches are. */
+  hits?: SearchHit[];
+}
+
 export type AgentKind = 'claude' | 'mock' | 'missing-key' | 'invalid-key';
 
 export interface ChatEntry {
@@ -46,13 +68,34 @@ export interface ProjectSummary {
   framework: string;
 }
 
+export interface ToolEvent extends ToolWhere {
+  type: 'tool';
+  id: string;
+  phase: 'start' | 'end';
+  action: ToolAction;
+  tool: string;
+  /** Project-relative path with forward slashes. */
+  file?: string;
+  /** On 'end': false when the tool call failed. */
+  ok?: boolean;
+}
+
 export type ServerEvent =
-  | { type: 'hello'; project: ProjectSummary; agent: AgentKind; busy: boolean; canUndo: boolean; history: ChatEntry[] }
+  | {
+      type: 'hello';
+      project: ProjectSummary;
+      agent: AgentKind;
+      busy: boolean;
+      canUndo: boolean;
+      history: ChatEntry[];
+      /** True when the dev server stamps data-hivebubble-src on page elements. */
+      sourceTags: boolean;
+    }
   | { type: 'route'; route: Route }
   | { type: 'status'; state: 'idle' | 'working' }
   | { type: 'say'; role: 'assistant' | 'system'; text: string }
   | { type: 'user'; text: string; route: Route }
-  | { type: 'tool'; id: string; phase: 'start' | 'end'; action: ToolAction; tool: string; file?: string }
+  | ToolEvent
   | { type: 'done'; ok: boolean; summary: string; costUsd?: number; durationMs: number; canUndo: boolean }
   | { type: 'undone'; files: string[]; canUndo: boolean }
   | { type: 'error'; message: string };

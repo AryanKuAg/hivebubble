@@ -6,6 +6,7 @@ import { ManagedProcess, findFreePort, waitForPort } from './processes.js';
 import { detectProject, devCommand, frameworkLabel, installCommand } from './project.js';
 import { createProxy } from './proxy.js';
 import { Session } from './session.js';
+import { planSourceTags } from './sourceTags.js';
 import type { AgentKind } from './types.js';
 
 export type StartState = 'detecting' | 'installing' | 'starting' | 'ready' | 'stopped' | 'error';
@@ -82,7 +83,7 @@ export async function startHivebubble(opts: StartOptions): Promise<Running> {
     target: () => devPort,
     bubbleJs: () => readFileSync(bubbleFile, 'utf8'),
     onClient: (ws) => session.attach(ws),
-    health: () => ({ ok: true, project: info.name, framework: project.framework, devPort, agent }),
+    health: () => ({ ok: true, project: info.name, framework: project.framework, devPort, agent, sourceTags: session.sourceTags }),
   });
   let proxyPort = await findFreePort(opts.port ?? 4321);
   for (let attempt = 0; ; attempt++) {
@@ -112,24 +113,44 @@ export async function startHivebubble(opts: StartOptions): Promise<Running> {
     }
   }
 
-  const wanted = await findFreePort(info.framework === 'next' ? 3000 : 5173);
-  let reported: number | null = null;
-  r.status('starting', 'Starting your dev server…');
-  const dev = new ManagedProcess(devCommand(info, wanted), info.dir, (line) => {
-    r.log('dev', line);
-    const m = line.match(/(?:localhost|127\.0\.0\.1|\[::1\]):(\d{2,5})/);
-    if (m && reported === null) reported = Number(m[1]);
-  });
+  const tags = planSourceTags(info);
+  r.log(
+    'hivebubble',
+    tags.on
+      ? 'Source tags are on: the picker knows where each element is written, and the bees fly to the exact element being changed.'
+      : `Source tags are off because ${tags.why}. The bees fly near the right part of the page instead.`,
+  );
 
-  const up = await waitForPort(() => reported ?? wanted, 120_000, () => dev.running);
-  if (!up) {
+  const wanted = await findFreePort(info.framework === 'next' ? 3000 : 5173);
+  const startDev = async (extra: string[]) => {
+    let reported: number | null = null;
+    const proc = new ManagedProcess(devCommand(info, wanted, extra), info.dir, (line) => {
+      r.log('dev', line);
+      const m = line.match(/(?:localhost|127\.0\.0\.1|\[::1\]):(\d{2,5})/);
+      if (m && reported === null) reported = Number(m[1]);
+    });
+    const up = await waitForPort(() => reported ?? wanted, 120_000, () => proc.running);
+    return { proc, port: up ? (reported ?? wanted) : null };
+  };
+
+  r.status('starting', 'Starting your dev server…');
+  let started = await startDev(tags.on ? tags.args : []);
+  if (started.port === null && tags.on && !started.proc.running) {
+    // Never let source tags be the reason a project doesn't start.
+    r.log('hivebubble', 'The dev server stopped while starting with source tags. Starting it again without them…');
+    started = await startDev([]);
+  } else {
+    session.sourceTags = tags.on;
+  }
+  const dev = started.proc;
+  if (started.port === null) {
     const stillRunning = dev.running;
     await dev.stop();
     cleanupServer();
     throw new Error(stillRunning ? 'The dev server did not start within 2 minutes.' : 'The dev server stopped while starting. The log above says why.');
   }
-  devPort = reported ?? wanted;
-  r.status('ready', `Your site is live at ${url}`, { url, devPort, agent, project });
+  devPort = started.port;
+  r.status('ready', `Your site is live at ${url}`, { url, devPort, agent, project, sourceTags: session.sourceTags });
 
   void dev.exited.then((code) => {
     if (stopping) return;

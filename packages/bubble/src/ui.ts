@@ -2,13 +2,15 @@ import type { AgentKind, ChatEntry, Effort, Mode, PickedElement, Route, ServerEv
 import { Connection } from './connection';
 import { BEE, CLOSE, HIVE, HIVE_ENTRANCE, PICK, SEND, STOP, UNDO } from './icons';
 import { describeElement, startPicker } from './picker';
-import { SWARM_SIZE, Swarm, describeTool } from './swarm';
+import { SWARM_SIZE, Swarm } from './swarm';
 import { CSS } from './styles';
+import { shortSrc } from './targets';
+import { PageWatcher } from './watch';
 
 const TEMPLATE = `
 <style>${CSS}</style>
 <div class="root">
-  <div class="layer"></div>
+  <div class="layer" aria-hidden="true"></div>
   <ul class="tray" hidden></ul>
   <div class="pick-box" hidden></div>
   <div class="pick-hint" hidden>Click the part of the page you want to change · Esc to cancel</div>
@@ -22,7 +24,7 @@ const TEMPLATE = `
     <div class="banner" hidden></div>
     <div class="messages" aria-live="polite"></div>
     <div class="composer">
-      <div class="picked" hidden><span></span><button class="icon-btn unpick" type="button" aria-label="Remove picked element">${CLOSE}</button></div>
+      <div class="picked" hidden><span></span><small class="src"></small><button class="icon-btn unpick" type="button" aria-label="Remove picked element">${CLOSE}</button></div>
       <textarea rows="2" placeholder="Tell the hive what to change…" aria-label="Message"></textarea>
       <div class="row">
         <button class="icon-btn pick" type="button" title="Pick an element on the page">${PICK}<span class="txt">Pick</span></button>
@@ -83,16 +85,29 @@ export function mount(): void {
   let mode: Mode = (store.get('mode') as Mode) || 'balanced';
   let taskEffort: Effort = 'medium';
 
-  const swarm = new Swarm(
-    q<HTMLElement>('.layer'),
-    q<HTMLElement>('.tray'),
-    () => {
-      // Bees leave from, and return to, the hive's entrance hole.
-      const r = launcher.querySelector('.hive')!.getBoundingClientRect();
+  const hiveRect = () => launcher.querySelector('.hive')!.getBoundingClientRect();
+  const watcher = new PageWatcher(host, (overlay) => swarm.pageError(overlay));
+  const swarm = new Swarm({
+    layer: q<HTMLElement>('.layer'),
+    tray: q<HTMLElement>('.tray'),
+    host,
+    // Bees leave from, and return to, the hive's entrance hole.
+    entrance: () => {
+      const r = hiveRect();
       return { x: r.left + r.width * HIVE_ENTRANCE.x, y: r.top + r.height * HIVE_ENTRANCE.y };
     },
-    () => (picked ? safeQuery(picked.selector) : null),
-  );
+    // The workbench sits just left of the hive, next to the tray.
+    bench: () => {
+      const r = hiveRect();
+      return { x: Math.max(40, r.left - 160), y: r.top + 12 };
+    },
+    focus: () => (picked ? safeQuery(picked.selector) : null),
+    avoid: () => (panel.hidden ? null : panel.getBoundingClientRect()),
+    watcher,
+    onActivity: (text) => {
+      if (working) working.querySelector('span')!.textContent = `${text}…`;
+    },
+  });
 
   // ---- rendering ---------------------------------------------------------
   const scroll = () => {
@@ -152,8 +167,11 @@ export function mount(): void {
     picked = next;
     pickedChip.hidden = !next;
     if (next) {
-      const span = pickedChip.querySelector('span')!;
-      span.textContent = `<${next.tag}> ${next.text || next.selector}`;
+      pickedChip.querySelector('span')!.textContent = `<${next.tag}> ${next.text || next.selector}`;
+      // Where the element is written, when the project has source tags.
+      const src = pickedChip.querySelector<HTMLElement>('.src')!;
+      src.textContent = shortSrc(next.src) ?? '';
+      src.title = next.src ? `Written in ${next.src}` : '';
     }
   }
 
@@ -199,6 +217,7 @@ export function mount(): void {
         working = null;
         for (const entry of e.history) addMessage(entry.role, entry.text, entry.route);
         setAgent(e.agent);
+        swarm.sourceTags = e.sourceTags;
         setBusy(e.busy);
         if (e.busy) swarm.launch(SWARM_SIZE[taskEffort]);
         undoBtn.disabled = !e.canUndo;
@@ -217,7 +236,6 @@ export function mount(): void {
         break;
       case 'tool':
         swarm.tool(e);
-        if (working && e.phase === 'start') working.querySelector('span')!.textContent = `${describeTool(e)}…`;
         break;
       case 'done': {
         swarm.finish();

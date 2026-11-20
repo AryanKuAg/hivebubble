@@ -1,0 +1,20 @@
+{
+  "name": "@hivebubble/source-tags",
+  "version": "0.1.0",
+  "description": "Dev-only JSX transform that stamps data-hivebubble-src=\"file:line:col\" on page elements, so Hivebubble knows which code drew each part of the page.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test \"dist/**/*.test.js\""
+  },
+  "dependencies": {
+    "@babel/parser": "7.29.12",
+    "magic-string": "1.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "typescript": "7.0.2"
+  }
+}

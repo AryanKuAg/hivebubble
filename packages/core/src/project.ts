@@ -18,7 +18,10 @@ export interface ProjectInfo {
   name: string;
   framework: Framework;
   packageManager: PackageManager;
+  /** The package.json script that starts the dev server ("dev" or "start"). */
   devScript: string;
+  /** What that script runs, e.g. "vite" or "next dev". */
+  devScriptCommand: string;
   needsInstall: boolean;
 }
 
@@ -81,6 +84,7 @@ export function detectProject(dirInput: string): ProjectInfo {
     framework: detectFramework(deps),
     packageManager: detectPackageManager(dir),
     devScript,
+    devScriptCommand: scripts[devScript] ?? '',
     needsInstall: !existsSync(path.join(dir, 'node_modules')),
   };
 }
@@ -95,8 +99,11 @@ export function installCommand(info: ProjectInfo): CommandSpec {
   return { cmd: info.packageManager, args: ['install'], env: {} };
 }
 
-/** The command that starts the project's dev server on a given port. */
-export function devCommand(info: ProjectInfo, port: number): CommandSpec {
+/**
+ * The command that starts the project's dev server on a given port. `extra`
+ * arguments go to the dev server itself (for Vite: Hivebubble's config).
+ */
+export function devCommand(info: ProjectInfo, port: number, extra: string[] = []): CommandSpec {
   const p = String(port);
   let portArgs: string[];
   switch (info.framework) {
@@ -115,9 +122,10 @@ export function devCommand(info: ProjectInfo, port: number): CommandSpec {
       portArgs = [];
   }
   const args = ['run', info.devScript];
-  if (portArgs.length > 0) {
+  const passed = [...extra, ...portArgs];
+  if (passed.length > 0) {
     if (info.packageManager === 'npm') args.push('--');
-    args.push(...portArgs);
+    args.push(...passed);
   }
   return { cmd: info.packageManager, args, env: { PORT: p, BROWSER: 'none' } };
 }

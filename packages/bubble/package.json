@@ -4,9 +4,13 @@
   "description": "The in-page Hivebubble widget: chat, element picker and bee cursors.",
   "license": "Apache-2.0",
   "type": "module",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --format=iife --target=es2020 --minify --outfile=dist/bubble.js"
+    "build": "esbuild src/index.ts --bundle --format=iife --target=es2020 --minify --outfile=dist/bubble.js",
+    "test": "esbuild src/targets.test.ts --bundle --platform=node --format=esm --log-level=warning --outfile=dist/test/targets.test.mjs && node --test dist/test/targets.test.mjs",
+    "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {
     "esbuild": "0.28.2",

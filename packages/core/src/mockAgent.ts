@@ -1,14 +1,18 @@
-import { readdirSync, readFileSync, writeFileSync, type Dirent } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync, type Dirent } from 'node:fs';
 import path from 'node:path';
 import type { AgentContext, AgentResult } from './agent.js';
-import type { PickedElement } from './types.js';
+import { lineAt, parseSourceTag, spanLines } from './locate.js';
+import { insideProject, projectRelative } from './paths.js';
+import type { PickedElement, ToolAction, ToolEvent } from './types.js';
 
 /**
  * Demo mode: a tiny local stand-in for Claude, used for tests, demos and for
  * trying Hivebubble without an API key. It can do exactly one thing for real:
  * change the text of a picked element ("change the text to "…""). Every step
- * it takes is a real file search, read or edit, so the bee cursors and undo
- * behave exactly as they do with Claude.
+ * it takes is a real file search, read or edit, reported with the same lines
+ * and search hits as Claude's, so the bee cursors and undo behave exactly as
+ * they do with Claude. Like Claude, it skips the search when the picked
+ * element has a source tag.
  */
 
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', '.nuxt', '.svelte-kit', '.astro', 'coverage', '.hivebubble', '.turbo', '.vercel']);
@@ -54,26 +58,50 @@ const sleep = (ms: number, signal: AbortSignal) =>
 let counter = 0;
 const nextId = () => `demo_${Date.now()}_${counter++}`;
 
-export async function runMock(ctx: AgentContext, req: { text: string; element?: PickedElement }): Promise<AgentResult> {
+export interface MockOptions {
+  /** Multiplies every pause: 1 paces steps roughly like Claude (so the bees have time to fly), tests use less. */
+  pace?: number;
+}
+
+export async function runMock(ctx: AgentContext, req: { text: string; element?: PickedElement }, opts: MockOptions = {}): Promise<AgentResult> {
   const { signal } = ctx.abort;
-  const rel = (abs: string) => path.relative(ctx.cwd, abs);
+  const pace = opts.pace ?? 1;
+  const rel = (abs: string) => projectRelative(ctx.cwd, abs) ?? abs;
+  // Each step: the tool runs, then a short pause while "Claude" thinks about the result.
+  const step = async (action: ToolAction, tool: string, ms: number, start: Partial<ToolEvent>, end: () => Partial<ToolEvent> = () => ({})) => {
+    const id = nextId();
+    ctx.emit({ type: 'tool', id, phase: 'start', action, tool, ...start });
+    await sleep(ms * pace, signal);
+    ctx.emit({ type: 'tool', id, phase: 'end', action, tool, file: start.file, ok: true, ...end() });
+    await sleep(450 * pace, signal);
+  };
   try {
+    // Planning before the first step, as Claude does: the bees fly out and think meanwhile.
+    await sleep(1100 * pace, signal);
     const needle = req.element?.text?.trim();
     const replacement = parseNewText(req.text);
 
-    const searchId = nextId();
-    ctx.emit({ type: 'tool', id: searchId, phase: 'start', action: 'search', tool: 'Grep' });
-    await sleep(500, signal);
-    const files = sourceFiles(ctx.cwd);
-    const hits = needle ? files.filter((f) => readFileSync(f, 'utf8').includes(needle)) : [];
-    ctx.emit({ type: 'tool', id: searchId, phase: 'end', action: 'search', tool: 'Grep' });
+    // With a source tag the picked element says where it's written: go straight there.
+    let hits: string[] = [];
+    const tag = parseSourceTag(req.element?.src);
+    const tagged = tag ? path.resolve(ctx.cwd, tag.file) : null;
+    if (tag && tagged && insideProject(ctx.cwd, tagged) && existsSync(tagged)) {
+      const from = Math.max(1, tag.line - 4);
+      await step('read', 'Read', 900, { file: rel(tagged), lines: [from, tag.line + 8] });
+      if (needle && readFileSync(tagged, 'utf8').includes(needle)) hits = [tagged];
+    }
 
-    const toRead = hits.length > 0 ? hits.slice(0, 2) : files.slice(0, 2);
-    for (const file of toRead) {
-      const id = nextId();
-      ctx.emit({ type: 'tool', id, phase: 'start', action: 'read', tool: 'Read', file: rel(file) });
-      await sleep(450, signal);
-      ctx.emit({ type: 'tool', id, phase: 'end', action: 'read', tool: 'Read', file: rel(file) });
+    if (hits.length === 0) {
+      const files = sourceFiles(ctx.cwd);
+      hits = needle ? files.filter((f) => readFileSync(f, 'utf8').includes(needle)) : [];
+      const found = hits.slice(0, 4).map((f) => {
+        const text = readFileSync(f, 'utf8');
+        return { file: rel(f), line: lineAt(text, text.indexOf(needle!)) };
+      });
+      await step('search', 'Grep', 700, {}, () => (found.length > 0 ? { hits: found } : {}));
+      for (const file of hits.length > 0 ? hits.slice(0, 2) : files.slice(0, 2)) {
+        await step('read', 'Read', 800, { file: rel(file) });
+      }
     }
 
     if (!needle || !replacement || hits.length === 0) {
@@ -87,13 +115,13 @@ export async function runMock(ctx: AgentContext, req: { text: string; element?: 
     }
 
     const file = hits[0];
-    const id = nextId();
     ctx.checkpoints.snapshot(file);
-    ctx.emit({ type: 'tool', id, phase: 'start', action: 'edit', tool: 'Edit', file: rel(file) });
-    await sleep(600, signal);
     const source = readFileSync(file, 'utf8');
-    writeFileSync(file, source.replace(needle, replacement));
-    ctx.emit({ type: 'tool', id, phase: 'end', action: 'edit', tool: 'Edit', file: rel(file) });
+    const at = source.indexOf(needle);
+    await step('edit', 'Edit', 1200, { file: rel(file), lines: spanLines(source, at, needle.length) }, () => {
+      writeFileSync(file, source.slice(0, at) + replacement + source.slice(at + needle.length));
+      return { lines: spanLines(readFileSync(file, 'utf8'), at, replacement.length) };
+    });
 
     const summary = `Changed “${needle}” to “${replacement}”. (Demo mode: add an API key to let Claude do more.)`;
     ctx.emit({ type: 'say', role: 'assistant', text: summary });

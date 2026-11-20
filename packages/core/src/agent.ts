@@ -3,7 +3,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { query, type HookCallback } from '@anthropic-ai/claude-agent-sdk';
 import Anthropic from '@anthropic-ai/sdk';
-import { isInside, type Checkpoints } from './checkpoints.js';
+import type { Checkpoints } from './checkpoints.js';
+import { Locator, toolFile } from './locate.js';
+import { insideProject, projectRelative } from './paths.js';
 import { SYSTEM_APPEND } from './prompt.js';
 import type { Route, ServerEvent, ToolAction } from './types.js';
 import { VERSION } from './version.js';
@@ -55,23 +57,16 @@ export function toolAction(tool: string): ToolAction {
   }
 }
 
-export function toolFile(input: unknown): string | undefined {
-  if (!input || typeof input !== 'object') return undefined;
-  const o = input as Record<string, unknown>;
-  if (typeof o.file_path === 'string') return o.file_path;
-  if (typeof o.notebook_path === 'string') return o.notebook_path;
-  if (typeof o.path === 'string') return o.path;
-  return undefined;
-}
+export { toolFile };
 
 /**
  * Why a tool call reaches outside the project folder, or null when it stays
  * inside. Reads count too: files outside the project must never be sent to
- * the model.
+ * the model. Symlinks are followed, so a link can't lead outside either.
  */
 export function outsideProject(cwd: string, input: unknown): string | null {
   const file = toolFile(input);
-  if (file && !isInside(cwd, path.resolve(cwd, file))) return `"${file}" is outside the project folder.`;
+  if (file && !insideProject(cwd, file)) return `"${file}" is outside the project folder.`;
   const pattern = input && typeof input === 'object' ? (input as Record<string, unknown>).pattern : undefined;
   if (typeof pattern === 'string' && (path.isAbsolute(pattern) || pattern.startsWith('~') || pattern.split(/[\\/]/).includes('..'))) {
     return `The pattern "${pattern}" reaches outside the project folder.`;
@@ -113,6 +108,15 @@ export function agentConfigDir(): string {
   return dir;
 }
 
+/** Locating a step is only for the bee animation: it must never break the task. */
+function safely<T extends object>(fn: () => T): T | Record<string, never> {
+  try {
+    return fn();
+  } catch {
+    return {};
+  }
+}
+
 function friendlyError(text: string): string {
   if (/invalid api key|authentication|401|x-api-key/i.test(text)) {
     return 'Your Anthropic API key was rejected. Check it in Hivebubble settings.';
@@ -127,10 +131,12 @@ function friendlyError(text: string): string {
 }
 
 export async function runClaude(ctx: AgentContext, req: AgentRequest): Promise<AgentResult> {
-  const rel = (file: string) => path.relative(ctx.cwd, path.resolve(ctx.cwd, file));
+  const rel = (file: string) => projectRelative(ctx.cwd, file) ?? file;
+  const locator = new Locator(ctx.cwd);
 
   // Every tool call passes through here. This is the one place that keeps the
-  // agent inside the project folder and saves undo points before edits.
+  // agent inside the project folder, saves undo points before edits and tells
+  // the bubble where on the page each step happens.
   const before: HookCallback = async (input) => {
     if (input.hook_event_name !== 'PreToolUse') return {};
     const action = toolAction(input.tool_name);
@@ -146,13 +152,23 @@ export async function runClaude(ctx: AgentContext, req: AgentRequest): Promise<A
       };
     }
     if (file && (action === 'edit' || action === 'write')) ctx.checkpoints.snapshot(path.resolve(ctx.cwd, file));
-    ctx.emit({ type: 'tool', id: input.tool_use_id, phase: 'start', action, tool: input.tool_name, file: file && rel(file) });
+    ctx.emit({
+      type: 'tool',
+      id: input.tool_use_id,
+      phase: 'start',
+      action,
+      tool: input.tool_name,
+      file: file && rel(file),
+      ...safely(() => locator.start(input.tool_use_id, input.tool_name, input.tool_input)),
+    });
     return {};
   };
 
   const after: HookCallback = async (input) => {
-    if (input.hook_event_name !== 'PostToolUse') return {};
+    if (input.hook_event_name !== 'PostToolUse' && input.hook_event_name !== 'PostToolUseFailure') return {};
     const file = toolFile(input.tool_input);
+    const ok = input.hook_event_name === 'PostToolUse';
+    if (!ok) locator.forget(input.tool_use_id);
     ctx.emit({
       type: 'tool',
       id: input.tool_use_id,
@@ -160,6 +176,10 @@ export async function runClaude(ctx: AgentContext, req: AgentRequest): Promise<A
       action: toolAction(input.tool_name),
       tool: input.tool_name,
       file: file && rel(file),
+      ok,
+      ...(input.hook_event_name === 'PostToolUse'
+        ? safely(() => locator.end(input.tool_use_id, input.tool_name, input.tool_input, input.tool_response))
+        : {}),
     });
     return {};
   };
@@ -180,6 +200,7 @@ export async function runClaude(ctx: AgentContext, req: AgentRequest): Promise<A
         hooks: {
           PreToolUse: [{ hooks: [before] }],
           PostToolUse: [{ hooks: [after] }],
+          PostToolUseFailure: [{ hooks: [after] }],
         },
         settingSources: ['project'],
         systemPrompt: { type: 'preset', preset: 'claude_code', append: SYSTEM_APPEND },

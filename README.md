@@ -5,12 +5,18 @@
 
 ---
 
-## Try v0.1 (milestone M1)
+## Try it (milestones M1 and M2)
 
 **What works today:**
 - Open a JavaScript web project. Hivebubble installs its packages, starts its dev server and puts a chat bubble on the page at `http://localhost:4321`.
 - Type what you want, or pick a part of the page first. Claude edits the code and the page updates live through hot reload.
-- **Bee cursors** fly over the page while the agent reads and edits files. Each bee is labelled with the real file being worked on.
+- **The picker knows where things are written.** Pick an element and the bubble shows its source location (`Hero.jsx:6`). Claude gets the exact `file:line:column` and goes straight there, without searching.
+- **Bee cursors follow the agent's real steps** to the exact elements its code draws:
+  - **Reading** a file: a bee tours the elements that file draws, under a blue reading ripple.
+  - **Searching**: a bee scans the page, then hops to the elements where the matches are.
+  - **Editing**: the bee clicks in, a caret blinks in its label and the element shimmers. A ✓ appears only once hot reload has put the change on the page. A stylesheet edit lights up the elements its rules style.
+  - Code that draws nothing on the page (config, data, server code) is worked on at the **workbench** next to the hive.
+  - While Claude **thinks** between steps, the bees bob in place. A **failed step** turns its bee amber at the problem, and so does the dev server's error overlay.
 - The **Smart Router** picks Claude's effort for each message. A **Quick / Auto / Thorough** switch moves it down or up a level.
 - **Undo** reverts the last change.
 - The **Mac app** keeps your API key in the macOS Keychain and remembers recent projects.
@@ -36,19 +42,24 @@ pnpm desktop
 
 | Path | What it is |
 |---|---|
-| `packages/core` | The engine: project detection, dev-server runner, preview proxy, Smart Router, Claude Agent SDK runner, undo checkpoints, CLI |
-| `packages/bubble` | The in-page widget: chat, element picker, bee cursors (Shadow DOM, about 22 KB) |
+| `packages/core` | The engine: project detection, dev-server runner, preview proxy, Smart Router, Claude Agent SDK runner, step locator (which lines and selectors each tool call touches), undo checkpoints, CLI |
+| `packages/bubble` | The in-page widget: chat, element picker, bee cursors and their effects (Shadow DOM, about 43 KB, 15 KB gzipped) |
+| `packages/source-tags` | The dev-only transform that stamps `data-hivebubble-src="file:line:col"` on page elements, as a Vite plugin |
 | `apps/desktop` | The Tauri Mac app around the engine |
 | `examples/vite-react` | A small bakery site to try it on |
 
-**Tests:**
-- `pnpm test` runs the unit tests.
-- `pnpm smoke` runs an end-to-end check while `pnpm demo` is running.
+**How source tags work:** for a Vite project, Hivebubble writes `.hivebubble/vite.config.mjs`, which loads your own Vite config unchanged and adds the source-tags plugin. It then starts your dev script with `--config` pointing at that file. Your files are never edited, `npm run dev` on its own still uses only your config, production builds never see the tags, and `.hivebubble/` ignores itself in git. If the dev server won't start with them, Hivebubble starts it again without them. Set `HIVEBUBBLE_SOURCE_TAGS=0` to turn them off.
 
-**Known limits in v0.1:**
+**Tests:**
+- `pnpm test` builds everything and runs the unit tests of all three packages.
+- `pnpm smoke` runs an end-to-end check while `pnpm demo` is running. It checks that the dev server serves tagged modules, a picked element's edit goes straight to its file and line, and Undo restores the file.
+
+**Known limits:**
 - The Mac app runs the engine from this repo checkout. A packaged `.dmg` with Node bundled inside comes in v0.2.
-- The agent can read, search and edit files inside the project only. It can't run commands, so it asks you to install packages.
-- Until source tags land (M2), bee positions on the page are approximate. The activity they show is real.
+- The agent can read, search and edit files inside the project only. It can't run commands, so it asks you to install packages, and the workbench shows file work only.
+- Source tags need a Vite project whose dev script starts Vite directly, and they tag JSX (React, Preact, Solid). Elsewhere (Next.js, Astro, Vue or Svelte files) the bees fly to the picked element or near the work, and no element is highlighted.
+- The picked element goes to Claude with its source location and HTML. The screenshot crop from §5 isn't done yet.
+- The agent doesn't start subagents yet, so the "a new named bee joins" behaviour from §7 has nothing to show.
 - Next.js and other frameworks are detected and started, but only Vite has been tested end to end so far.
 
 Everything below is the build plan (drafted 2026-11-20; facts about the Claude Agent SDK and similar tools were checked on that date, with sources at the end).
@@ -369,7 +380,7 @@ Every milestone ends with something you can film.
 |---|---|---|---|
 | **M0** ✅ | Foundations | Repo is public with a license, a README with the diagram, and CI | "I'm building an app that lets anyone build apps by talking to their website", with the architecture diagram |
 | **M1** ✅ v0.1 | Bubble on localhost | Open a Next.js or Vite folder, and Hivebubble installs dependencies, starts the dev server and injects the bubble. Chat edits the page at a fixed effort, and hot reload shows the change. | The first "typed one sentence, site changed" reel |
-| **M2** | Swarm cursors + picker | Cursors follow real tool events, and the picker attaches `file:line` | **The hero reel:** cursors building a page |
+| **M2** ✅ | Swarm cursors + picker | Cursors follow real tool events, and the picker attaches `file:line` | **The hero reel:** cursors building a page |
 | **M3** | Router v1 + undo + cost | Rules router, one retry on failure, checkpoints and Undo, cost meter and cap, a test set of 30 prompts | "Auto effort vs. always-max: same result, X× faster, Y× cheaper", with real numbers |
 | **M4** | Skills & starters | Registry, lock file, Skills screen, "new app from a starter" | "Empty folder to working booking app" timelapse |
 | **M5** | Deploy wizard | Vercel works end to end with illustrated steps, then Netlify and Cloudflare | "Localhost to a live URL in one click" |
@@ -419,7 +430,7 @@ Every milestone ends with something you can film.
 - [x] Scaffold the monorepo (pnpm workspaces; Turborepo can come later) and a Tauri app that can open a folder.
 - [x] **Spike 1:** a proxy that injects the bubble into a dev server page while hot reload keeps working (verified on Vite; Next.js still to test).
 - [x] **Spike 2:** an Agent SDK runner where one prompt edits a project file and hot reload shows it, with every hook event streamed to the bee cursors (end to end in demo mode; first real Claude run needs an API key).
-- [ ] **Spike 3:** the dev-only JSX tag plugin. Clicking an element returns its `file:line`.
+- [x] **Spike 3:** the dev-only JSX tag plugin. Clicking an element returns its `file:line` (Vite projects with JSX; other frameworks still to do).
 - [ ] Post: a day-1 announcement with the architecture diagram.
 
 ---
