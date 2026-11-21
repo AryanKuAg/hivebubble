@@ -7,3 +7,4 @@ target/
 *.log
 .hivebubble/
 apps/desktop/src-tauri/gen/
+packages/core/bench/results/

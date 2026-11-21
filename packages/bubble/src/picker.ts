@@ -1,4 +1,5 @@
 import type { PickedElement } from '../../core/src/types';
+import { SRC_ATTR } from './targets';
 
 function cssEscape(s: string): string {
   return typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(s) : s.replace(/[^a-zA-Z0-9_-]/g, '\\$&');
@@ -30,14 +31,23 @@ export function cssPath(el: Element): string {
   return parts.join(' > ');
 }
 
+/** The element's HTML without Hivebubble's source tags: they aren't in the code, so Claude shouldn't see them. */
+export function cleanHtml(el: Element, max = 600): string {
+  const copy = el.cloneNode(true) as Element;
+  copy.removeAttribute(SRC_ATTR);
+  for (const inner of Array.from(copy.querySelectorAll(`[${SRC_ATTR}]`))) inner.removeAttribute(SRC_ATTR);
+  return copy.outerHTML.slice(0, max);
+}
+
 export function describeElement(el: Element): PickedElement {
   const raw = (el as HTMLElement).innerText ?? el.textContent ?? '';
   return {
     tag: el.tagName.toLowerCase(),
     selector: cssPath(el),
     text: raw.trim().replace(/\s+/g, ' ').slice(0, 200),
-    html: el.outerHTML.slice(0, 600),
-    src: el.closest('[data-hivebubble-src]')?.getAttribute('data-hivebubble-src') ?? undefined,
+    html: cleanHtml(el),
+    // Where this element (or, for an element from a library, its nearest tagged parent) is written.
+    src: el.closest(`[${SRC_ATTR}]`)?.getAttribute(SRC_ATTR) ?? undefined,
   };
 }
 

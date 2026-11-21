@@ -10,12 +10,14 @@
     "node": ">=20.19"
   },
   "scripts": {
-    "build": "pnpm --filter @hivebubble/bubble build && pnpm --filter @hivebubble/core build",
-    "test": "pnpm build && pnpm --filter @hivebubble/core test",
+    "build": "pnpm --filter @hivebubble/source-tags build && pnpm --filter @hivebubble/bubble build && pnpm --filter @hivebubble/core build",
+    "test": "pnpm build && pnpm --filter @hivebubble/bubble typecheck && pnpm --filter @hivebubble/source-tags test && pnpm --filter @hivebubble/bubble test && pnpm --filter @hivebubble/core test",
     "start": "node packages/core/dist/cli.js",
     "demo": "node packages/core/dist/cli.js examples/vite-react --mock-agent",
     "desktop": "pnpm build && pnpm --filter @hivebubble/desktop dev",
     "desktop:build": "pnpm build && pnpm --filter @hivebubble/desktop build",
-    "smoke": "node packages/core/scripts/smoke.mjs http://localhost:4321 examples/vite-react"
+    "smoke": "node packages/core/scripts/smoke.mjs http://localhost:4321 examples/vite-react",
+    "bench": "node packages/core/scripts/bench.mjs",
+    "new": "node packages/core/dist/cli.js new"
   }
 }

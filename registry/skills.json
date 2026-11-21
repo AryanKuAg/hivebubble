@@ -1,0 +1,38 @@
+{
+  "about": "Agent Skills Hivebubble can add to a project (README §8). Every entry is pinned to a commit and lists its license, the date someone last read every file at that commit, and whether it contains scripts or network calls. To add one, open a pull request after doing that review yourself.",
+  "skills": [
+    {
+      "id": "frontend-design",
+      "name": "frontend-design",
+      "title": "Distinctive design",
+      "description": "Guidance for distinctive, intentional visual design: a clear aesthetic direction, deliberate typography, and no templated defaults.",
+      "author": "Anthropic",
+      "source": { "repo": "anthropics/skills", "path": "skills/frontend-design", "sha": "41bbe19d1a1a7eaab5e7bb9050a417e5c6cffc8f" },
+      "license": "Apache-2.0",
+      "licenseSource": "LICENSE.txt in the skill's folder",
+      "reviewed": "2026-11-20",
+      "verified": true,
+      "scripts": false,
+      "network": false,
+      "useFor": ["new-app", "component"],
+      "keywords": ["design", "redesign", "look", "feel", "premium", "modern", "beautiful", "prettier", "nicer", "stylish", "theme", "branding", "landing page", "homepage"]
+    },
+    {
+      "id": "react-best-practices",
+      "name": "vercel-react-best-practices",
+      "title": "React best practices",
+      "description": "Vercel's React performance guidelines: 70 rules on rendering, data fetching and bundle size, for pages that feel slow.",
+      "author": "Vercel",
+      "source": { "repo": "vercel-labs/agent-skills", "path": "skills/react-best-practices", "sha": "dc8367e6f91c022d83361f03c3313fa05e848ee5" },
+      "license": "MIT",
+      "licenseSource": "the skill's SKILL.md and the repository README",
+      "reviewed": "2026-11-20",
+      "verified": true,
+      "scripts": false,
+      "network": false,
+      "useFor": [],
+      "keywords": ["slow", "slower", "performance", "faster", "speed up", "re-render", "rerender", "bundle size", "laggy", "lag", "sluggish", "loading time", "optimise", "optimize"],
+      "frameworks": ["react"]
+    }
+  ]
+}

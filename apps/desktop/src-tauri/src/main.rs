@@ -1,8 +1,10 @@
-// Hivebubble Mac app: a thin window around @hivebubble/core.
+// Hivebubble desktop app (macOS, Windows, Linux): a thin window around @hivebubble/core.
 //
-// The app picks a project folder, keeps the Anthropic API key in the macOS
-// Keychain, and runs the Node engine (`hivebubble --json`) as a child process.
-// Engine events arrive as JSON lines on stdout and are forwarded to the window.
+// The app picks a project folder, keeps secrets (the Anthropic API key, hosting
+// tokens, database connections) in the system's own store (the macOS Keychain,
+// Windows Credential Manager, or the Secret Service on Linux), and runs the Node
+// engine (`hivebubble --json`) as a child process. Engine events arrive as JSON
+// lines on stdout and are forwarded to the window.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -41,6 +43,10 @@ struct Settings {
     core_found: bool,
     running: Option<String>,
     example: Option<String>,
+    /// Which hosting accounts are connected (no secrets).
+    hosts: serde_json::Value,
+    /// "macos", "windows" or "linux": the window names the right secret store.
+    os: &'static str,
 }
 
 fn key_entry() -> Result<keyring::Entry, String> {
@@ -51,8 +57,112 @@ fn stored_key() -> Option<String> {
     key_entry().ok()?.get_password().ok().filter(|k| !k.trim().is_empty())
 }
 
-/// Apps opened from Finder don't get the shell's PATH, so ask the login shell
-/// once. That finds node and npm wherever they were installed (Homebrew, nvm, …).
+/// Hosting accounts for the deploy wizard: one Keychain item per host. The
+/// engine gets them as the environment variables each host's API expects.
+const HOSTS: [(&str, &[&str]); 3] = [
+    ("vercel", &["VERCEL_TOKEN"]),
+    ("netlify", &["NETLIFY_AUTH_TOKEN"]),
+    ("cloudflare", &["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]),
+];
+
+fn host_entry(host: &str) -> Result<keyring::Entry, String> {
+    if !HOSTS.iter().any(|(h, _)| *h == host) {
+        return Err(format!("Unknown host: {host}"));
+    }
+    keyring::Entry::new(KEYCHAIN_SERVICE, &format!("host-{host}")).map_err(|e| e.to_string())
+}
+
+/// The saved values for a host, in the order of its environment variables.
+fn host_values(host: &str) -> Option<Vec<String>> {
+    let raw = host_entry(host).ok()?.get_password().ok()?;
+    let values: Vec<String> = serde_json::from_str(&raw).ok()?;
+    let (_, vars) = HOSTS.iter().find(|(h, _)| *h == host)?;
+    (values.len() == vars.len() && values.iter().all(|v| !v.trim().is_empty())).then_some(values)
+}
+
+#[tauri::command]
+fn save_host_token(host: String, token: String, account_id: Option<String>) -> Result<(), String> {
+    let token = token.trim().to_string();
+    if token.len() < 8 || token.len() > 512 || token.chars().any(char::is_whitespace) {
+        return Err("That doesn't look like a token. Copy it again from the host's token page.".into());
+    }
+    let mut values = vec![token];
+    if host == "cloudflare" {
+        let account = account_id.unwrap_or_default().trim().to_lowercase();
+        if account.len() != 32 || !account.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err("A Cloudflare account ID is 32 letters and digits. Copy it from the Workers & Pages overview.".into());
+        }
+        values.push(account);
+    }
+    let json = serde_json::to_string(&values).map_err(|e| e.to_string())?;
+    host_entry(&host)?.set_password(&json).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn clear_host_token(host: String) -> Result<(), String> {
+    match host_entry(&host)?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// A project's database connection string for Users & Data: one Keychain item
+/// per project folder. The engine gets it as HIVEBUBBLE_DATABASE_URL.
+fn db_entry(project: &str) -> Result<keyring::Entry, String> {
+    keyring::Entry::new(KEYCHAIN_SERVICE, &format!("db:{project}")).map_err(|e| e.to_string())
+}
+
+fn db_url(project: &str) -> Option<String> {
+    db_entry(project).ok()?.get_password().ok().filter(|u| !u.trim().is_empty())
+}
+
+#[tauri::command]
+fn save_db_url(project: String, url: String) -> Result<(), String> {
+    let url = url.trim();
+    let scheme = url.starts_with("postgres://") || url.starts_with("postgresql://");
+    if !scheme || url.len() > 2048 || url.chars().any(char::is_whitespace) {
+        return Err("A connection string starts with postgres:// or postgresql://. Copy it again from your database's dashboard.".into());
+    }
+    if url.contains("[YOUR-PASSWORD]") {
+        return Err("Put your database password in place of [YOUR-PASSWORD] first.".into());
+    }
+    db_entry(&project)?.set_password(url).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn clear_db_url(project: String) -> Result<(), String> {
+    match db_entry(&project)?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+fn has_db_url(project: String) -> bool {
+    db_url(&project).is_some()
+}
+
+/// Windows: the PATH the app got is the user's own. Programs started from the
+/// app get no console window of their own.
+#[cfg(windows)]
+fn login_path() -> String {
+    std::env::var("PATH").unwrap_or_default()
+}
+
+#[cfg(windows)]
+fn no_console(cmd: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    cmd.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn no_console(_cmd: &mut Command) {}
+
+/// Apps opened from Finder or a Linux launcher don't get the shell's PATH, so ask
+/// the login shell once. That finds node and npm wherever they were installed
+/// (Homebrew, nvm, …).
+#[cfg(not(windows))]
 fn login_path() -> String {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
     let output = Command::new(shell)
@@ -74,15 +184,34 @@ fn login_path() -> String {
 }
 
 fn find_node(path: &str) -> Option<String> {
-    path.split(':')
-        .map(|dir| Path::new(dir).join("node"))
+    let exe = if cfg!(windows) { "node.exe" } else { "node" };
+    std::env::split_paths(&std::ffi::OsString::from(path))
+        .map(|dir| dir.join(exe))
         .find(|p| p.is_file())
         .map(|p| p.to_string_lossy().into_owned())
 }
 
+/// Windows' canonical paths start with \\?\, which Node turns into odd file URLs.
+fn plain_path(p: PathBuf) -> PathBuf {
+    match p.to_str().and_then(|s| s.strip_prefix(r"\\?\")) {
+        Some(rest) => PathBuf::from(rest),
+        None => p,
+    }
+}
+
 fn repo_root() -> PathBuf {
     let here = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
-    here.canonicalize().unwrap_or(here)
+    plain_path(here.canonicalize().unwrap_or(here))
+}
+
+/// The same folder Node's os.homedir() gives the engine.
+fn user_home() -> PathBuf {
+    let vars: &[&str] = if cfg!(windows) { &["USERPROFILE", "HOME"] } else { &["HOME"] };
+    vars.iter()
+        .filter_map(|v| std::env::var_os(v))
+        .find(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
 }
 
 /// v0.1 runs the engine from the repository checkout. A bundled Node runtime
@@ -150,6 +279,8 @@ fn get_settings(app: AppHandle, state: State<AppState>) -> Settings {
         core: core.to_string_lossy().into_owned(),
         running: state.running.lock().ok().and_then(|r| r.as_ref().map(|r| r.project.clone())),
         example: example.join("package.json").is_file().then(|| example.to_string_lossy().into_owned()),
+        hosts: serde_json::Value::Object(HOSTS.iter().map(|(h, _)| (h.to_string(), serde_json::Value::Bool(host_values(h).is_some()))).collect()),
+        os: std::env::consts::OS,
     }
 }
 
@@ -170,13 +301,125 @@ fn clear_api_key() -> Result<(), String> {
     }
 }
 
+/// Hivebubble's own folder, shared with the engine: the spending ledger and the
+/// settings (daily limit, per-task limit). Same rule as the engine's `hivebubbleHome()`.
+fn hivebubble_home() -> PathBuf {
+    if let Ok(dir) = std::env::var("HIVEBUBBLE_HOME") {
+        if !dir.is_empty() {
+            return PathBuf::from(dir);
+        }
+    }
+    let home = user_home();
+    if cfg!(target_os = "macos") {
+        home.join("Library/Application Support/Hivebubble")
+    } else {
+        home.join(".hivebubble")
+    }
+}
+
+fn read_json(file: &Path) -> serde_json::Value {
+    std::fs::read_to_string(file)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| serde_json::json!({}))
+}
+
+/// The raw ledger and settings. The window adds the days up itself, so "today"
+/// follows the person's own calendar.
 #[tauri::command]
-async fn pick_folder(app: AppHandle) -> Option<String> {
-    app.dialog().file().set_title("Choose your project folder").blocking_pick_folder().map(|p| p.to_string())
+fn get_spending() -> serde_json::Value {
+    let home = hivebubble_home();
+    let ledger = read_json(&home.join("spend.json"));
+    serde_json::json!({
+        "settings": read_json(&home.join("settings.json")),
+        "days": ledger.get("days").cloned().unwrap_or_else(|| serde_json::json!({})),
+    })
+}
+
+/// Save the daily limit. The engine reads it before every task, so it applies right away.
+#[tauri::command]
+fn set_daily_cap(usd: f64) -> Result<(), String> {
+    if !usd.is_finite() || !(0.5..=10_000.0).contains(&usd) {
+        return Err("Choose a daily limit between $0.50 and $10,000.".into());
+    }
+    let home = hivebubble_home();
+    std::fs::create_dir_all(&home).map_err(|e| e.to_string())?;
+    let file = home.join("settings.json");
+    let mut settings = read_json(&file);
+    if !settings.is_object() {
+        settings = serde_json::json!({});
+    }
+    settings["dailyCapUsd"] = serde_json::json!((usd * 100.0).round() / 100.0);
+    let text = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
+    let tmp = home.join("settings.json.tmp");
+    std::fs::write(&tmp, format!("{text}\n")).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &file).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn start_project(app: AppHandle, state: State<AppState>, project: String, demo: bool) -> Result<(), String> {
+async fn pick_folder(app: AppHandle, title: Option<String>) -> Option<String> {
+    let title = title.unwrap_or_else(|| "Choose your project folder".into());
+    app.dialog().file().set_title(title).blocking_pick_folder().map(|p| p.to_string())
+}
+
+/// Run one of the engine's own subcommands (`skills`, `starters`, `new`) with
+/// `--json` and return its output. Nothing else can be run through here.
+fn engine_cli(args: &[String], cwd: Option<&Path>) -> Result<String, String> {
+    let first = args.first().map(String::as_str).unwrap_or("");
+    if !matches!(first, "skills" | "starters" | "new") {
+        return Err(format!("Not an engine command: {first}"));
+    }
+    let path = login_path();
+    let node = find_node(&path).ok_or("Node.js isn't installed. Install it from nodejs.org, then reopen Hivebubble.")?;
+    let core = core_script();
+    let mut cmd = Command::new(node);
+    cmd.arg(&core).args(args).arg("--json").env("PATH", &path).stdin(Stdio::null());
+    no_console(&mut cmd);
+    if let Some(dir) = cwd {
+        cmd.current_dir(dir);
+    }
+    let out = cmd.output().map_err(|e| format!("Couldn't run the engine: {e}"))?;
+    let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    // Errors come back as {"error": "..."} on stdout.
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&stdout) {
+        if let Some(err) = value.get("error").and_then(|e| e.as_str()) {
+            return Err(err.to_string());
+        }
+    }
+    if out.status.success() {
+        Ok(stdout)
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+    }
+}
+
+#[tauri::command]
+fn run_cli(args: Vec<String>) -> Result<String, String> {
+    engine_cli(&args, None)
+}
+
+/// "Start something new": pick a starter for the request and create the app
+/// in a new folder inside `parent`.
+#[tauri::command]
+fn create_project(parent: String, what: String) -> Result<String, String> {
+    let parent = PathBuf::from(&parent);
+    if !parent.is_dir() {
+        return Err("Choose an existing folder to create the app in.".into());
+    }
+    engine_cli(&["new".to_string(), "--for".to_string(), what], Some(&parent))
+}
+
+/// Skills link to their files on GitHub; nothing else opens from here.
+#[tauri::command]
+fn open_link(app: AppHandle, url: String) -> Result<(), String> {
+    if !url.starts_with("https://github.com/") {
+        return Err("Hivebubble only opens GitHub links here.".into());
+    }
+    app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn start_project(app: AppHandle, state: State<AppState>, project: String, demo: bool, prompt: Option<String>) -> Result<(), String> {
     stop_running(&state);
     if !Path::new(&project).join("package.json").is_file() {
         return Err("That folder has no package.json. Choose the folder of a JavaScript web project.".into());
@@ -197,10 +440,32 @@ fn start_project(app: AppHandle, state: State<AppState>, project: String, demo: 
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    no_console(&mut cmd);
     if demo {
         cmd.arg("--mock-agent");
     } else if let Some(key) = stored_key() {
-        cmd.env("ANTHROPIC_API_KEY", key);
+        // A saved key is an explicit choice: Hivebubble's own agent, billed to that API account.
+        // Without one, Claude Code does the work through Hivebubble's plugin (no key).
+        cmd.arg("--agent").arg("api").env("ANTHROPIC_API_KEY", key);
+    }
+    if let Some(prompt) = prompt.filter(|p| !p.trim().is_empty()) {
+        cmd.arg("--prompt").arg(prompt);
+    }
+    // The bubble tells people to save connection strings here, not in a file.
+    cmd.env("HIVEBUBBLE_APP", "1").env_remove("HIVEBUBBLE_DATABASE_URL");
+    if let Some(url) = db_url(&project) {
+        cmd.env("HIVEBUBBLE_DATABASE_URL", url);
+    }
+    // Hosting accounts from the Keychain, for the deploy wizard.
+    for (host, vars) in HOSTS {
+        for var in vars {
+            cmd.env_remove(var);
+        }
+        if let Some(values) = host_values(host) {
+            for (var, value) in vars.iter().zip(values) {
+                cmd.env(var, value);
+            }
+        }
     }
     let mut child = cmd.spawn().map_err(|e| format!("Couldn't start the engine: {e}"))?;
 
@@ -265,6 +530,16 @@ fn main() {
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             get_settings,
+            get_spending,
+            set_daily_cap,
+            run_cli,
+            create_project,
+            open_link,
+            save_host_token,
+            clear_host_token,
+            save_db_url,
+            clear_db_url,
+            has_db_url,
             save_api_key,
             clear_api_key,
             pick_folder,

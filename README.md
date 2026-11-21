@@ -1,21 +1,77 @@
 # Hivebubble
 
 > **Talk to your website. Watch the hive build it.**
-> An open-source Mac app that puts a Claude-powered chat bubble on your localhost site, so anyone can build, deploy and run a custom web app without opening an editor or a terminal.
+> An open-source desktop app (macOS, Windows and Linux) that puts a Claude-powered chat bubble on your localhost site, so anyone can build, deploy and run a custom web app without opening an editor or a terminal.
 
 ---
 
-## Try v0.1 (milestone M1)
+## Try it (milestones M1 to M8)
+
+**No API key needed.** Claude Code does the work, with your own Claude login:
+
+1. Once, add Hivebubble's plugin to Claude Code: `claude plugin install hivebubble --marketplace AryanKuAg/hivebubble` (or `/plugin install hivebubble --marketplace AryanKuAg/hivebubble` inside Claude Code).
+2. Start Hivebubble on your project: the desktop app, or `pnpm start path/to/your/project`.
+3. Open Claude Code in the project's folder and type `/hivebubble:work`.
+4. Talk to your site in the bubble. Each request goes to Claude Code, which edits the code; the bees on the page follow its steps, Hivebubble checks the page, and Undo puts things back.
 
 **What works today:**
 - Open a JavaScript web project. Hivebubble installs its packages, starts its dev server and puts a chat bubble on the page at `http://localhost:4321`.
 - Type what you want, or pick a part of the page first. Claude edits the code and the page updates live through hot reload.
-- **Bee cursors** fly over the page while the agent reads and edits files. Each bee is labelled with the real file being worked on.
-- The **Smart Router** picks Claude's effort for each message. A **Quick / Auto / Thorough** switch moves it down or up a level.
-- **Undo** reverts the last change.
-- The **Mac app** keeps your API key in the macOS Keychain and remembers recent projects.
+- **Claude Code does the work** (M8), through Hivebubble's plugin in `claude-code/`:
+  - an MCP server with `next_request`, `say` and `finish` for the bubble's requests, and `data_schema`, `data_query` and `data_change` for Users & Data;
+  - hooks that tell Hivebubble each step, so the bees follow Claude Code's real reads, searches and edits. Each file is saved before it's edited (for Undo), edits inside the project are approved during a bubble request, and the bubble's **Stop** refuses Claude Code's next step;
+  - the `/hivebubble:work` command, which starts the loop: wait for a request, do it, finish, wait again.
 
-**You need:** macOS, Node.js 20.19 or newer, pnpm 9, and your own Anthropic API key. For the Mac app you also need the Rust toolchain.
+  After Claude Code calls `finish`, Hivebubble runs its checks. If one fails, the error goes straight back to Claude Code to fix, once. Hivebubble never signs in to Claude itself: it finds no key and needs none. With `--agent api` (or a key saved in the desktop app), Hivebubble's own Claude agent does the work instead, billed to that API account.
+- **The picker knows where things are written.** Pick an element and the bubble shows its source location (`Hero.jsx:6`). Claude gets the exact `file:line:column` and goes straight there, without searching.
+- **Bee cursors follow the agent's real steps** to the exact elements its code draws:
+  - **Reading** a file: a bee tours the elements that file draws, under a blue reading ripple.
+  - **Searching**: a bee scans the page, then hops to the elements where the matches are.
+  - **Editing**: the bee clicks in, a caret blinks in its label and the element shimmers. A ✓ appears only once hot reload has put the change on the page. A stylesheet edit lights up the elements its rules style.
+  - Code that draws nothing on the page (config, data, server code) is worked on at the **workbench** next to the hive.
+  - While Claude **thinks** between steps, the bees bob in place. A **failed step** turns its bee amber at the problem, and so does the dev server's error overlay.
+- The **Smart Router** picks Claude's effort and the checks for each message, in well under a millisecond and without an LLM call (§6):
+  - It tells questions, text changes, style tweaks, new sections, features, bugs and new apps apart. Quoted new text doesn't count, so *change the button to "Pay now"* stays a quick text change.
+  - Logins, payments, data, secrets and packages get careful effort and a build check. Asking for several things at once, or a failed or undone last attempt, moves the next task one level deeper.
+  - A **Quick / Auto / Thorough** switch moves it down or up a level. **Think harder** is the only way to the deepest effort.
+- **Checks after every change, and one retry.** The dev server has to compile every changed file, and the open page must show no new errors from them. TypeScript projects also get a type check, and bigger tasks a production build (Vite). Errors that were there before the task don't count (Hivebubble checks types and the build once in the background when a project opens). If a check fails, the hive tries once more, one effort level deeper, with the error in hand. If that fails too, it says so plainly.
+- **Cost you can see and cap.** A live cost meter runs while Claude works. Big tasks show an estimate and wait for a yes. Hivebubble pauses for the day at a daily limit ($5 by default, set in the desktop app or with `--daily-cap`), and each task stays under a task limit ($2, `--max-budget`). The bubble and the desktop app show today's and this month's spending.
+- **Undo** reverts the last change, also after a restart. It won't silently overwrite edits made after the task: it asks first.
+- Every task is written to `.hivebubble/router-log.jsonl` (signals, effort, checks, cost, time, outcome, later undos). Estimates for big tasks come from it.
+- **Start something new.** Say what you want ("a booking app for my salon") on the desktop app's home screen, or run `pnpm new --for "…"`. Hivebubble:
+  - picks a starter (a working booking app, a small-business website, or Vite's blank React + TypeScript app);
+  - copies it into a new folder without its git history, installs it and starts it;
+  - waits with your request in the bubble, so Claude adapts the app to you.
+- **Skills.**
+  - **Built in:** Hivebubble's own skills ship as a plugin and are always available: house style, what "done" means, and explaining changes in plain words.
+  - **From the registry:** reviewed skills can be added to a project. Each is pinned to a commit, with its license and the date it was read. Before a task, the router offers one that fits, once. During a task, only the skills it needs are switched on.
+  - **The Skills screen** (desktop app) shows each skill's reason, version, license and files. It shows the diff before any update, and removes skills.
+  - **The lock file** `.hivebubble/skills.lock` records where each skill came from and why.
+- **Put it online** (the globe in the bubble's header). A wizard inside the bubble:
+  1. shows a card for **Vercel**, **Netlify** and **Cloudflare**, each with who it's best for, the free plan, the steps and the time. It recommends the host you used last, or Vercel;
+  2. connects the account: the desktop app keeps each host's token in the system's secure storage, and the card says how to make one;
+  3. lists the settings the app reads (`import.meta.env.X`, `process.env.X`) and warns about any that no `.env` file sets. It only reads names, never values;
+  4. builds the site on your computer first, so a broken build never reaches the host. If the build fails, it shows the log, and one button hands it to the hive to fix;
+  5. uploads the files, with a progress bar per step and a bee on the workbench (Netlify and Cloudflare get only the files that changed);
+  6. shows the live address, a QR code for your phone and the steps to add your own domain. The next deploy updates the same site.
+- **Users & Data** (the database button in the bubble's header), for Supabase and any Postgres:
+  - **Ask in plain words**, like *"Who signed up this week?"*. The answer comes back as a sentence and a table, or bars for counts over time. *How I got this* shows the SQL, which you can edit and run again.
+  - **Claude never sees your data.** It gets your question and the names and types of your tables and columns; passwords and tokens are left out even there. The query then runs on your computer, inside a read-only transaction, with a time limit and at most 500 rows back. Password and token columns show as "hidden".
+  - **Change data safely.** Ask *"Give Priya pro access"* and Hivebubble shows exactly which rows would change, before → after, and waits. On **Make this change** it saves a backup of those rows to `.hivebubble/data/backups`, checks the rows still look like the preview, and changes them in one transaction. That transaction writes the values you saw to the rows you saw; no SQL written by Claude runs in it. Deleting more than one row needs the word "delete" typed. The **Changes** tab undoes any change from its backup, and asks first if the rows were edited again since.
+  - **Logs:** errors from the page, the dev server and production builds, grouped and said in plain words, with the file they point at and a **Fix it** button that hands the error to the hive. For Supabase it also shows sign-ups and sign-ins from the last 7 days.
+  - A switch hides emails and phone numbers on screen and in what **Fix it** sends, for screen recordings.
+  - Demo mode answers a few fixed questions about users without Claude, and never changes data.
+- The bubble's connection only accepts the page Hivebubble serves: other websites, and pages that reach your computer under another name (DNS rebinding), are refused.
+- The **desktop app** runs on macOS, Windows and Linux. It keeps your API key, hosting tokens and each project's database connection string in the system's own secure storage (the Keychain, Windows Credential Manager, or the Secret Service keyring on Linux), remembers recent projects and shows your spending and daily limit.
+- **The Chrome extension** (`apps/extension`) puts the bubble on localhost pages that Hivebubble doesn't serve:
+  - **your project's own dev server** (say `localhost:5173`) gets it by itself;
+  - **any other localhost site** gets it once you press *Add it* in the extension's popup, and keeps it;
+  - Hivebubble's own preview is left alone, since it already has the bubble.
+
+  It pairs with Hivebubble by itself. Each time Hivebubble starts, it makes a secret that it gives only to this extension (Chrome marks the extension's requests with its ID, which a web page can't fake), and bubbles from other localhost pages must bring that secret. When Hivebubble restarts, the bubble pairs again within a few seconds, without reloading the page.
+- **Attach to a dev server you already run** with `--attach http://localhost:3000`. Hivebubble then installs and starts nothing, and the extension adds the bubble to that site.
+
+**You need:** macOS, Windows or Linux, Node.js 20.19 or newer, pnpm 9, and your own Anthropic API key. For the desktop app you also need the Rust toolchain (and on Linux the WebKitGTK packages Tauri lists). The extension is tested in Chrome; other Chromium browsers (Edge, Brave, Arc) may work.
 
 ```bash
 git clone https://github.com/AryanKuAg/hivebubble.git && cd hivebubble
@@ -24,32 +80,155 @@ pnpm install && pnpm build
 # Demo mode: no API key, no Claude calls. It can only change text.
 pnpm demo                    # opens the example bakery site with the bubble
 
-# With Claude
-echo "ANTHROPIC_API_KEY=sk-ant-..." > .env.local
+# With Claude Code (no API key): start Hivebubble, then type /hivebubble:work in Claude Code in that folder
 pnpm start path/to/your/project
+claude plugin install hivebubble --marketplace AryanKuAg/hivebubble   # once
 
-# The Mac app (Tauri)
+# Or Hivebubble's own Claude agent, with an Anthropic API key
+echo "ANTHROPIC_API_KEY=sk-ant-..." > .env.local
+pnpm start path/to/your/project --agent api
+
+# A new app from a starter, then run it with your request waiting in the bubble
+pnpm new --for "a booking app for my salon"     # prints the command to start it
+
+# Hosting tokens for "Put it online" from the command line (the desktop app keeps them in secure storage)
+echo "VERCEL_TOKEN=..." >> .env.local           # or NETLIFY_AUTH_TOKEN, or CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID
+
+# Users & Data reads DATABASE_URL (or POSTGRES_URL, SUPABASE_DB_URL) from your project's .env files
+echo "DATABASE_URL=postgresql://..." >> path/to/your/project/.env.local
+
+# Your own dev server is already running on port 3000: attach to it instead of starting one
+pnpm start path/to/your/project --attach http://localhost:3000
+
+# The desktop app (Tauri), on macOS, Windows or Linux
 pnpm desktop
 ```
+
+**The Chrome extension:** open `chrome://extensions`, turn on *Developer mode*, press *Load unpacked* and choose `apps/extension`. Its ID is always `eooocceknjjdpfdbcgakcdmofbnmbdmb`: the manifest carries the public key it comes from, so Hivebubble knows it.
 
 **What's in the repo:**
 
 | Path | What it is |
 |---|---|
-| `packages/core` | The engine: project detection, dev-server runner, preview proxy, Smart Router, Claude Agent SDK runner, undo checkpoints, CLI |
-| `packages/bubble` | The in-page widget: chat, element picker, bee cursors (Shadow DOM, about 22 KB) |
-| `apps/desktop` | The Tauri Mac app around the engine |
+| `packages/core` | The engine: project detection, dev-server runner, preview proxy, Smart Router, Claude Agent SDK runner, step locator (which lines and selectors each tool call touches), undo checkpoints, deploys (`hosts.ts`, `deploy.ts`), Users & Data (`db.ts`, `sqlScan.ts`, `dataAsk.ts`, `dataChanges.ts`, `logs.ts`), CLI |
+| `packages/bubble` | The in-page widget: chat, element picker, bee cursors and their effects, the deploy wizard, Users & Data (Shadow DOM, about 90 KB, 28 KB gzipped) |
+| `packages/source-tags` | The dev-only transform that stamps `data-hivebubble-src="file:line:col"` on page elements, as a Vite plugin |
+| `plugin` | Hivebubble's own skills (house style, verify, explain), loaded as a Claude Code plugin |
+| `registry` | The curated skills and starters (`skills.json`, `starters.json`). New entries come by pull request |
+| `starters` | Hivebubble's own starters: a booking app and a small-business website |
+| `apps/desktop` | The Tauri desktop app around the engine (macOS, Windows, Linux) |
+| `apps/extension` | The Chrome extension (Manifest V3) that puts the bubble on other localhost pages |
+| `claude-code` | The Claude Code plugin: MCP server, hooks and the `/hivebubble:work` command (`.claude-plugin/marketplace.json` lists it) |
 | `examples/vite-react` | A small bakery site to try it on |
 
-**Tests:**
-- `pnpm test` runs the unit tests.
-- `pnpm smoke` runs an end-to-end check while `pnpm demo` is running.
+**How source tags work:** for a Vite project, Hivebubble writes `.hivebubble/vite.config.mjs`, which loads your own Vite config unchanged and adds the source-tags plugin. It then starts your dev script with `--config` pointing at that file. Your files are never edited, `npm run dev` on its own still uses only your config, production builds never see the tags, and `.hivebubble/` ignores itself in git. If the dev server won't start with them, Hivebubble starts it again without them. Set `HIVEBUBBLE_SOURCE_TAGS=0` to turn them off.
 
-**Known limits in v0.1:**
-- The Mac app runs the engine from this repo checkout. A packaged `.dmg` with Node bundled inside comes in v0.2.
-- The agent can read, search and edit files inside the project only. It can't run commands, so it asks you to install packages.
-- Until source tags land (M2), bee positions on the page are approximate. The activity they show is real.
+**Tests:**
+- `pnpm test` builds everything and runs the unit tests of all three packages, including the router's test set of 30 prompts (`packages/core/bench/prompts.json`). The deploy tests run against local stand-ins for the Vercel and Netlify APIs, and one builds the example with Vite and deploys it through the bubble's session end to end. The Users & Data tests run real PostgreSQL (PGlite, Postgres compiled to WebAssembly) behind a real socket, so the same driver code talks to it as to Supabase, with a Supabase-shaped `auth` schema. Other tests check who may pair and open the bubble's socket, attach mode, and the commands built for Windows.
+- The Claude Code tests run the plugin's own MCP server and hook scripts against a real Hivebubble: a request from the bubble, an edit with Undo, a failed check sent back to fix, Stop, and a Users & Data question. One run with the real Claude Code (2.1.329, Haiku, the plugin loaded with `--plugin-dir`) did a request from the bubble end to end; that run isn't part of CI.
+- CI runs the tests on macOS, Linux and Windows, and the *Desktop app* workflow builds the app and its installers on all three (`.dmg`, `.msi` and `.exe`, `.deb`, `.rpm` and `.AppImage`).
+- `pnpm smoke` runs an end-to-end check while `pnpm demo` is running. It checks that the dev server serves tagged modules, a picked element's edit goes straight to its file and line, the page check passes, and Undo restores the file.
+- `pnpm bench` runs the router's test set with Claude, once at the router's effort and once at max effort, on fresh copies of the example, and grades each run with its "done" checks. It prints time, cost and pass rate per mode. Without `--yes` it only shows the plan and a rough cost; `--mock --yes` checks the pipeline for free.
+
+**Known limits:**
+- **Claude Code:**
+  - Open it in the project's folder (or a folder inside it): that's how the plugin finds the Hivebubble running there.
+  - Undo covers files Claude Code changes with its edit tools. Changes its shell commands make (say, `npm install` or `sed`) aren't saved first.
+  - The work runs in your Claude Code session and counts toward your Claude plan's limits. Hivebubble doesn't see its cost, so the cost meter and the daily limit only apply to `--agent api`.
+  - While the plugin is on, its hooks run at each Read, Edit, Write, search or command in every Claude Code session. In folders without Hivebubble they stop right away. Turn the plugin off with `claude plugin disable hivebubble` when you don't use it.
+  - Until this branch is merged into `main`, install the plugin from a local clone: `claude plugin install hivebubble --marketplace /path/to/hivebubble`.
+  - Other coding agents that speak MCP (Codex, Cursor, Gemini CLI) could use the MCP server (`node claude-code/scripts/mcp.mjs`), but they're not tested, and without Claude Code's hooks they get no bees, Undo or Stop.
+- The desktop app runs the engine from this repo checkout on every system. Installers with Node bundled inside come in v0.2. The installers CI builds aren't signed, so macOS and Windows warn before opening them.
+- **Windows and Linux:** the engine's tests pass there in CI and the app builds there, but nobody has clicked through the app on those systems by hand yet.
+- **The extension:**
+  - It's loaded unpacked, not from the Chrome Web Store yet. A store copy would get another ID; Hivebubble accepts extra IDs from `HIVEBUBBLE_EXTENSION_IDS`.
+  - It looks for Hivebubble on ports 4321 to 4330.
+  - A page with a strict Content-Security-Policy can block the bubble script it adds.
+  - Pages you add the bubble to can use it, as Hivebubble's own preview can.
+  - In attach mode there are no source tags (Hivebubble didn't start the dev server), so the bees fly near the work, and a crashed dev server is yours to restart.
+- The agent can read, search and edit files inside the project only. It can't run commands, so it asks you to install packages, and the workbench shows file work only.
+- Source tags need a Vite project whose dev script starts Vite directly, and they tag JSX (React, Preact, Solid). Elsewhere (Next.js, Astro, Vue or Svelte files) the bees fly to the picked element or near the work, and no element is highlighted.
+- The picked element goes to Claude with its source location and HTML. The screenshot crop from §5 isn't done yet.
+- The agent doesn't start subagents yet, so the "a new named bee joins" behaviour from §7 has nothing to show.
 - Next.js and other frameworks are detected and started, but only Vite has been tested end to end so far.
+- The build check runs for Vite projects only (a build next to a running `next dev` would fight over `.next`), and there is no visual check yet. The router's LLM tie-breaker for unclear requests (§6) isn't built; unclear requests get balanced effort.
+- Cost estimates are a rough range until a project has a few finished tasks at that effort. The router's numbers in the benchmark need a real run with your API key, so none are published yet.
+- The registry is small to start: two skills and three starters, all for Vite and React. Finding skills beyond it (skills.sh, GitHub search) isn't built yet. Skills that need to run scripts can't, because the agent has no shell.
+- **Deploys:**
+  - They work for Vite projects, which build to static files. Next.js and apps with their own server can't be put online from the bubble yet (Railway or Render come later).
+  - Accounts connect with a token you paste, not by signing in (OAuth needs a registered app with each host).
+  - The Vercel and Netlify code follows each host's documented API and is tested against local stand-ins. Cloudflare goes through Wrangler (pinned to 4.158.0), whose config was checked with a dry run. No deploy to a real account runs in CI, because that needs a token.
+  - Settings the app reads go into the build only from your `.env` files. Hivebubble doesn't copy them into the host's dashboard.
+  - The custom-domain steps are written out, not yet illustrated.
+- **Users & Data:**
+  - Supabase and Postgres only; Firebase comes later. Each request opens its own connection, and the connection follows the string's `sslmode` like psql does (Supabase's `require` encrypts without checking the certificate).
+  - Questions in plain words go to Claude (Opus 5.5 at low effort, a cent or two each, counted in the daily limit). That step is tested with a stand-in for Claude; no real call runs in the tests.
+  - Changes need a table with a primary key, at most 1,000 rows at a time. Deletes that the database would cascade to other tables are refused, because Undo couldn't bring those rows back. Undo puts back the rows Hivebubble changed, not what database triggers did elsewhere.
+  - Errors are kept while Hivebubble runs the project. Page errors point near the line, because the browser reports lines of the code the dev server serves. Hosting providers' function logs aren't pulled in (Vite deploys have no functions), and sign-in activity is for Supabase Auth only.
+
+## What is not done yet
+
+Short and simple. The **Known limits** list above has the details.
+
+**Getting the app**
+- You need Claude Code to make changes. (Or an Anthropic API key, if you want.)
+- The app does not have Node.js inside it. You need to install Node.js first.
+- The app needs this code folder to run. You cannot get the app alone yet.
+- The app has no Apple or Microsoft signature yet. So your computer shows a warning when you open it.
+- On Windows and Linux, only our automatic tests use the app. No person uses it there yet.
+- There is no Hivebubble website yet.
+
+**Claude in the bubble**
+- Claude can read and change files. Claude cannot run commands. So Claude cannot install packages. You install them.
+- Claude works alone. It cannot call helper agents yet.
+- You can pick a part of the page. Claude gets its code, but not a picture of it.
+- When your message is not clear, Hivebubble does not ask Claude to choose the level. It uses the middle level.
+- We have no numbers yet for speed and cost with the real Claude.
+- The app has no list of all your old changes. The Undo button undoes the last change.
+
+**Your website code**
+- Hivebubble finds the exact line of code only in Vite sites with React-style code (JSX).
+- Our tests use Vite sites. Next.js, Astro, Vue and Svelte need more tests.
+- The build check is only for Vite. There is no check that looks at a picture of the page.
+
+**Skills**
+- There are only 2 skills and 3 starter apps.
+- Hivebubble cannot look for more skills on the internet yet.
+- Skills that run scripts do not work, because Claude cannot run commands.
+
+**Put it online**
+- Only Vite sites can go online. Next.js sites and sites with a server cannot go online yet.
+- You copy a token from the host. There is no "Sign in" button yet.
+- Our tests use fake hosts, not the real Vercel, Netlify or Cloudflare.
+- Hivebubble does not copy your settings (your `.env` files) to the host.
+- The steps for your own domain name are only text. They have no pictures yet.
+
+**Users & Data**
+- It works with Supabase and Postgres. Firebase does not work yet.
+- Our tests use a fake Claude for questions in plain words, not the real Claude.
+- A change needs a table with a primary key. One change can touch 1,000 rows or fewer.
+- Hivebubble does not delete a row when the database must then delete rows in other tables too.
+- Undo does not undo the changes the database makes by itself (triggers).
+- There are no logs from the hosting company. Sign-in logs come only from Supabase.
+
+**The Chrome extension**
+- It is not in the Chrome Web Store. You add it by hand.
+- We test it only in Chrome. Edge, Brave or Arc may work. Firefox and Safari do not work.
+- It looks for Hivebubble only on ports 4321 to 4330.
+- Some pages block it (pages with a strict Content-Security-Policy).
+- With `--attach`, Hivebubble cannot find the exact line of code.
+
+**Claude Code**
+- Claude Code works with Hivebubble now. Other coding tools (Codex, Cursor) are not tested yet.
+- Undo does not undo changes from Claude Code's commands (for example `npm install`). It undoes file edits.
+- You must open Claude Code in the project's folder.
+- The plugin is not in the official plugin directory yet. You add it with one command.
+- Claude inside Hivebubble (the API key way) cannot use MCP tools. It only has its file tools.
+
+**Launch**
+- Some questions in section 17 are still open, for example Claude subscription login.
+- The domain name and the social media names are not registered yet.
+- The first post and the big launch (Show HN, Product Hunt) are still to do.
 
 Everything below is the build plan (drafted 2026-11-20; facts about the Claude Agent SDK and similar tools were checked on that date, with sources at the end).
 
@@ -321,7 +500,8 @@ hivebubble/
 │  ├─ deploy/         # provider adapters (vercel, netlify, cloudflare, …)
 │  └─ data/           # DB connectors, plain-English → SQL, safe-write flow, logs
 ├─ registry/          # skills.json, starters.json (community PRs welcome)
-├─ skills/            # Hivebubble's own skills
+├─ plugin/            # Hivebubble's own skills, as a Claude Code plugin
+├─ starters/          # Hivebubble's own starter projects
 ├─ docs/diagrams/     # architecture + message-flow diagrams (diagram-design)
 └─ README.md (this plan) · LICENSE · CONTRIBUTING.md · CODE_OF_CONDUCT.md
 ```
@@ -330,8 +510,9 @@ hivebubble/
 
 ## 13. Claude access, keys and cost
 
-- **Users bring their own Anthropic API key** from the Claude Console. It's stored in the Keychain.
-- **Claude subscription login (Pro or Max) is not an option** for a third-party app unless Anthropic approves it. From the Agent SDK docs: *"Unless previously approved, Anthropic does not allow third party developers to offer claude.ai login or rate limits for their products, including agents built on the Claude Agent SDK."* If you want it, ask Anthropic. Don't build a workaround.
+- **No API key needed (M8):** people run Claude Code with their own login, and Claude Code connects to Hivebubble through Hivebubble's plugin (an MCP server, hooks and a command). Claude Code stays the product people use; Hivebubble only gives it tools and shows its work in the bubble. Hivebubble never signs in to Claude, never handles a Claude login, and never runs its own agent on someone's subscription.
+- **With an API key instead** (`--agent api`): people bring their own Anthropic API key from the Claude Console. It's stored in the system's secure storage.
+- **Claude subscription login (Pro or Max) inside Hivebubble's own agent is not an option** for a third-party app unless Anthropic approves it. From the Agent SDK docs: *"Unless previously approved, Anthropic does not allow third party developers to offer claude.ai login or rate limits for their products, including agents built on the Claude Agent SDK."* If you want it, ask Anthropic. Don't build a workaround.
 - **Branding:** "Hivebubble, powered by Claude" is fine. Don't call it "Claude Code" or copy Claude Code's look (per the Agent SDK branding guidelines).
 - **Cost UX:**
   - A cost estimate before big (`xhigh`) tasks.
@@ -369,12 +550,13 @@ Every milestone ends with something you can film.
 |---|---|---|---|
 | **M0** ✅ | Foundations | Repo is public with a license, a README with the diagram, and CI | "I'm building an app that lets anyone build apps by talking to their website", with the architecture diagram |
 | **M1** ✅ v0.1 | Bubble on localhost | Open a Next.js or Vite folder, and Hivebubble installs dependencies, starts the dev server and injects the bubble. Chat edits the page at a fixed effort, and hot reload shows the change. | The first "typed one sentence, site changed" reel |
-| **M2** | Swarm cursors + picker | Cursors follow real tool events, and the picker attaches `file:line` | **The hero reel:** cursors building a page |
-| **M3** | Router v1 + undo + cost | Rules router, one retry on failure, checkpoints and Undo, cost meter and cap, a test set of 30 prompts | "Auto effort vs. always-max: same result, X× faster, Y× cheaper", with real numbers |
-| **M4** | Skills & starters | Registry, lock file, Skills screen, "new app from a starter" | "Empty folder to working booking app" timelapse |
-| **M5** | Deploy wizard | Vercel works end to end with illustrated steps, then Netlify and Cloudflare | "Localhost to a live URL in one click" |
-| **M6** | Users & Data | Read-only queries on Supabase and Postgres, a logs summary, safe writes | "I asked my app who signed up today" |
-| **M7** | Beyond the Mac | Windows and Linux builds, plus an optional Chrome extension that attaches to any localhost | Platform launch posts |
+| **M2** ✅ | Swarm cursors + picker | Cursors follow real tool events, and the picker attaches `file:line` | **The hero reel:** cursors building a page |
+| **M3** ✅ | Router v1 + undo + cost | Rules router, one retry on failure, checkpoints and Undo, cost meter and cap, a test set of 30 prompts | "Auto effort vs. always-max: same result, X× faster, Y× cheaper", with real numbers |
+| **M4** ✅ | Skills & starters | Registry, lock file, Skills screen, "new app from a starter" | "Empty folder to working booking app" timelapse |
+| **M5** ✅ | Deploy wizard | Vercel works end to end with illustrated steps, then Netlify and Cloudflare | "Localhost to a live URL in one click" |
+| **M6** ✅ | Users & Data | Read-only queries on Supabase and Postgres, a logs summary, safe writes | "I asked my app who signed up today" |
+| **M7** ✅ | Beyond the Mac | Windows and Linux builds, plus an optional Chrome extension that attaches to any localhost | Platform launch posts |
+| **M8** ✅ | Bring your own coding agent | Claude Code does the work through Hivebubble's plugin: no API key, bees follow its real steps, checks, Undo and Stop still work | "No API key: my Claude Code builds my site from a chat bubble" |
 
 **Big launch** (Show HN, Product Hunt): after M3 or M4, once a stranger can install Hivebubble and get the "wow" moment within 5 minutes.
 
@@ -419,7 +601,7 @@ Every milestone ends with something you can film.
 - [x] Scaffold the monorepo (pnpm workspaces; Turborepo can come later) and a Tauri app that can open a folder.
 - [x] **Spike 1:** a proxy that injects the bubble into a dev server page while hot reload keeps working (verified on Vite; Next.js still to test).
 - [x] **Spike 2:** an Agent SDK runner where one prompt edits a project file and hot reload shows it, with every hook event streamed to the bee cursors (end to end in demo mode; first real Claude run needs an API key).
-- [ ] **Spike 3:** the dev-only JSX tag plugin. Clicking an element returns its `file:line`.
+- [x] **Spike 3:** the dev-only JSX tag plugin. Clicking an element returns its `file:line` (Vite projects with JSX; other frameworks still to do).
 - [ ] Post: a day-1 announcement with the architecture diagram.
 
 ---

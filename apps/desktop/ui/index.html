@@ -26,6 +26,15 @@
           <button id="example" class="secondary" type="button" hidden>Try the example bakery site</button>
         </div>
         <label class="check"><input id="demo" type="checkbox" /> Demo mode <span class="muted">(no Claude calls, can only change text)</span></label>
+        <hr />
+        <h2>Start something new</h2>
+        <p class="muted">Say what you want to build. Hivebubble picks a starter, copies it into a new folder, starts it, and puts your request in the bubble for Claude.</p>
+        <form id="new-form" class="new-form">
+          <label for="new-what" class="sr-only">What do you want to build?</label>
+          <input id="new-what" placeholder="A booking app for my salon" autocomplete="off" />
+          <button class="primary" type="submit">Create…</button>
+        </form>
+        <p id="new-msg" class="muted small" role="status"></p>
         <div id="recent-wrap" hidden>
           <h3>Recent</h3>
           <ul id="recent"></ul>
@@ -49,6 +58,7 @@
           <li data-step="ready">Live</li>
         </ol>
         <p id="status" class="status">Starting…</p>
+        <p id="agent-status" class="small agent-status" hidden></p>
         <div id="live" class="live" hidden>
           <span class="mono" id="url"></span>
           <button id="open" class="primary" type="button">Open in browser</button>
@@ -57,21 +67,86 @@
           <summary>Log</summary>
           <pre id="log"></pre>
         </details>
+        <section class="skills" aria-labelledby="skills-title">
+          <h3 id="skills-title">Skills</h3>
+          <p class="small muted">Extra know-how Claude can use in this project. Hivebubble only adds reviewed skills, pinned to an exact version, and never updates one without showing you what changes.</p>
+          <ul id="skills-installed" class="skill-list"></ul>
+          <div id="skill-diff" class="diff" hidden>
+            <pre></pre>
+            <div class="row">
+              <button id="diff-apply" class="primary" type="button">Update</button>
+              <button id="diff-cancel" class="secondary" type="button">Keep this version</button>
+            </div>
+          </div>
+          <div id="skills-available-wrap">
+            <h4>Add a skill</h4>
+            <ul id="skills-available" class="skill-list"></ul>
+          </div>
+          <p id="skills-msg" class="muted small" role="status"></p>
+        </section>
+        <section class="db" aria-labelledby="db-title">
+          <h3 id="db-title">Users &amp; Data</h3>
+          <p class="small muted">Connect this project’s database to ask about your users from the bubble. Paste its connection string (in Supabase: Connect, then Session pooler). It’s kept in <span data-vault>your Mac’s Keychain</span>.</p>
+          <p id="db-status" class="small"></p>
+          <form id="db-form" class="db-form">
+            <label for="db-url" class="sr-only">Database connection string</label>
+            <input id="db-url" type="password" placeholder="postgresql://…" autocomplete="off" spellcheck="false" />
+            <button class="secondary" type="submit">Save and restart</button>
+          </form>
+          <button id="db-clear" class="link" type="button" hidden>Remove the saved connection</button>
+          <p id="db-msg" class="muted small" role="status"></p>
+        </section>
       </section>
 
       <!-- Settings -->
       <aside class="card side">
-        <h2>Claude</h2>
-        <p class="muted">Hivebubble uses your own Anthropic API key. It's stored in your Mac's Keychain and only sent to Anthropic.</p>
-        <p id="key-status" class="pill">Checking…</p>
-        <form id="key-form">
-          <label for="key" class="sr-only">Anthropic API key</label>
-          <input id="key" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false" />
-          <button class="primary" type="submit">Save key</button>
+        <h2>Claude Code</h2>
+        <p class="muted">Hivebubble needs no API key: Claude Code does the work, with your own Claude login.</p>
+        <ol class="steps-list small">
+          <li>Once, add Hivebubble to Claude Code:<br /><code class="mono copy">claude plugin install hivebubble --marketplace AryanKuAg/hivebubble</code></li>
+          <li>Open Claude Code in your project’s folder and type <code class="mono">/hivebubble:work</code>. Then talk to your site in the bubble.</li>
+        </ol>
+        <details class="api-key">
+          <summary class="small">Use an Anthropic API key instead (optional)</summary>
+          <p class="small muted">With a key saved here, Hivebubble uses its own Claude agent and pays per task from your API account. It's stored in <span data-vault>your Mac’s Keychain</span> and only sent to Anthropic.</p>
+          <p id="key-status" class="pill">Checking…</p>
+          <form id="key-form">
+            <label for="key" class="sr-only">Anthropic API key</label>
+            <input id="key" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false" />
+            <button class="secondary" type="submit">Save key</button>
+          </form>
+          <button id="clear-key" class="link" type="button" hidden>Remove saved key</button>
+          <p id="key-msg" class="muted small" role="status"></p>
+        </details>
+        <hr />
+        <h2>Hosting</h2>
+        <p class="small muted">Connect an account to put sites online from the bubble. Tokens stay in <span data-vault>your Mac’s Keychain</span>.</p>
+        <ul id="hosts" class="hosts-list"></ul>
+        <form id="host-form" class="host-form">
+          <label for="host-which" class="sr-only">Host</label>
+          <select id="host-which">
+            <option value="vercel">Vercel</option>
+            <option value="netlify">Netlify</option>
+            <option value="cloudflare">Cloudflare</option>
+          </select>
+          <label for="host-token" class="sr-only">Token</label>
+          <input id="host-token" type="password" placeholder="Paste a token" autocomplete="off" spellcheck="false" />
+          <label for="host-account" class="sr-only">Cloudflare account ID</label>
+          <input id="host-account" placeholder="Cloudflare account ID" autocomplete="off" spellcheck="false" hidden />
+          <button class="primary" type="submit">Save</button>
         </form>
-        <button id="clear-key" class="link" type="button" hidden>Remove saved key</button>
-        <p id="key-msg" class="muted small" role="status"></p>
-        <p class="small muted">Get a key at <span class="mono">platform.claude.com</span>. A Claude.ai subscription login can't be used in third-party apps.</p>
+        <p id="host-msg" class="muted small" role="status"></p>
+        <hr />
+        <h2>Spending</h2>
+        <p class="small" id="spend-today">Today: $0.00</p>
+        <p class="small muted" id="spend-month">This month: $0.00</p>
+        <form id="cap-form" class="cap">
+          <label for="cap" class="small">Daily limit ($)</label>
+          <input id="cap" type="number" min="0.5" max="10000" step="0.5" inputmode="decimal" />
+          <button class="secondary" type="submit">Save</button>
+        </form>
+        <p id="cap-msg" class="muted small" role="status"></p>
+        <p class="small muted">With an API key, Hivebubble pauses for the day once Claude has cost this much, and asks before big tasks. Claude Code uses your own Claude plan instead.</p>
         <hr />
         <h2>System</h2>
         <p class="small" id="node-status">Node.js: checking…</p>

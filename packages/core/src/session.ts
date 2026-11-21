@@ -1,37 +1,159 @@
+import { randomUUID } from 'node:crypto';
 import type { WebSocket } from 'ws';
-import { runClaude } from './agent.js';
+import { runClaude, type AgentContext, type AgentRequest, type AgentResult } from './agent.js';
+import { CHECK_LABELS, type Checker } from './checks.js';
 import { Checkpoints } from './checkpoints.js';
+import { SpendLedger, estimateCost } from './cost.js';
+import { readSettings } from './home.js';
 import { runMock } from './mockAgent.js';
-import { buildPrompt } from './prompt.js';
-import { routeTask } from './router.js';
-import type { AgentKind, ChatEntry, ClientMessage, ProjectSummary, ServerEvent } from './types.js';
+import { buildPrompt, retryPrompt } from './prompt.js';
+import { EFFORT_LABELS, routeTask, shiftEffort } from './router.js';
+import { RouterLog, type Attempt } from './routerLog.js';
+import { sourceUrl } from './github.js';
+import { declineSkill, installSkill, skillsForTask, suggestSkill } from './skills.js';
+import { deploySite, deploySupport, envNeeds, hostCards, type DeployOptions } from './deploy.js';
+import { DataDesk } from './dataDesk.js';
+import type { Asker } from './dataAsk.js';
+import { HarnessBridge } from './harness.js';
+import { ApiNotFound } from './proxy.js';
+import { ErrorLog } from './logs.js';
+import type { ProjectInfo } from './project.js';
+import type { HostId } from './types.js';
+import type {
+  AgentKind,
+  ChatEntry,
+  CheckResult,
+  ClientMessage,
+  CostEstimate,
+  ProjectSummary,
+  Route,
+  ServerEvent,
+  SpendSummary,
+} from './types.js';
 
 export interface SessionOptions {
   cwd: string;
   project: ProjectSummary;
   agent: AgentKind;
   apiKey?: string;
-  maxBudgetUsd: number;
+  /** The most one task may cost; overrides the saved setting (the --max-budget flag). */
+  maxBudgetUsd?: number;
   log: (line: string) => void;
+  /** Runs the checks after each task. Without one (tests), tasks end without checks. */
+  checker?: Checker | null;
+  /** True when the project has no source files of its own yet. */
+  isEmpty?: () => boolean;
+  ledger?: SpendLedger;
+  /** Runs Claude for one attempt; replaced in tests and benchmarks. */
+  runClaude?: (ctx: AgentContext, req: AgentRequest) => Promise<AgentResult>;
+  /** What was asked for when the app was created, put in the message box. */
+  draft?: string;
+  /** The project, for the deploy wizard. */
+  info?: ProjectInfo;
+  /** Deploy settings for tests (fake Wrangler, fast polling, a fixed environment). */
+  deploy?: Omit<Partial<DeployOptions>, 'signal'>;
+  /** Users & Data settings for tests (a stand-in for Claude, a fixed environment and time zone). */
+  data?: { asker?: Asker; env?: NodeJS.ProcessEnv; timeZone?: string };
+  /** The person's own dev server, e.g. http://localhost:5173: named in requests for a coding agent. */
+  site?: () => string | null;
 }
 
 const MAX_HISTORY = 200;
+/** How long to let hot reload reach the open page (and its errors come back) before the checks. */
+const SETTLE_MS = 800;
+const CONFIRM_TIMEOUT_MS = 10 * 60_000;
+const CHECK_NAMES: Record<CheckResult['check'], string> = { page: 'page', typecheck: 'type', build: 'build' };
+
+const money = (usd: number) => `$${usd > 0 && usd < 0.01 ? usd.toFixed(3) : usd.toFixed(2)}`;
+
+type ConfirmEvent = Extract<ServerEvent, { type: 'confirm' }>;
+type AskPayload = ConfirmEvent extends infer E ? (E extends ConfirmEvent ? Omit<E, 'type' | 'id'> : never) : never;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * One open project: the chat history, the running task, undo points and every
- * connected bubble (several tabs can be open; they all see the same chat).
+ * One open project: the chat history, the running task, undo points, the
+ * router's log and every connected bubble (several tabs can be open; they all
+ * see the same chat).
  */
 export class Session {
   private readonly clients = new Set<WebSocket>();
   private readonly history: ChatEntry[] = [];
   private readonly checkpoints: Checkpoints;
+  private readonly routerLog: RouterLog;
+  private readonly ledger: SpendLedger;
   private busy = false;
   private abort: AbortController | null = null;
   private lastFailed = false;
+  private lastUndone = false;
   private claudeSession: string | undefined;
+  private pageErrors: string[] = [];
+  private pendingConfirm: { event: ConfirmEvent; answer: (ok: boolean) => void } | null = null;
+  /** What was asked for when the app was created: shown in the message box until the first message. */
+  private draft: string | undefined;
+  /** Whether the dev server stamps data-hivebubble-src on elements (set once it has started). */
+  sourceTags = false;
+  /** Errors from the page, the dev server and builds, for the logs summary. */
+  readonly errors: ErrorLog;
+  /** Requests for a coding agent the person runs (Claude Code), with the harness agent. */
+  readonly harness: HarnessBridge;
+  private readonly data: DataDesk;
 
   constructor(private readonly opts: SessionOptions) {
     this.checkpoints = new Checkpoints(opts.cwd);
+    this.routerLog = new RouterLog(opts.cwd);
+    this.ledger = opts.ledger ?? new SpendLedger();
+    this.draft = opts.draft?.trim() || undefined;
+    this.errors = new ErrorLog(opts.cwd);
+    this.harness = new HarnessBridge(opts.cwd, (e) => this.broadcast(e), opts.log);
+    this.data = new DataDesk({
+      harness: opts.agent === 'harness' ? this.harness : undefined,
+      projectDir: opts.cwd,
+      agent: opts.agent,
+      apiKey: opts.apiKey,
+      ledger: this.ledger,
+      errorLog: this.errors,
+      emit: (e) => this.broadcast(e),
+      log: opts.log,
+      ...opts.data,
+    });
+  }
+
+  spend(): SpendSummary {
+    return this.ledger.summary(readSettings().dailyCapUsd);
+  }
+
+  /**
+   * The local API for a coding agent's plugin (proxy.ts checks the key first):
+   * hello, next, say, finish, event (from hooks) and the Users & Data tools.
+   */
+  async harnessApi(name: string, body: Record<string, unknown>, client: string | undefined, signal: AbortSignal): Promise<unknown> {
+    if (this.opts.agent !== 'harness') {
+      const why = this.opts.agent === 'mock' ? 'runs in demo mode' : 'uses its own agent with an API key';
+      if (name === 'event') return {};
+      return { request: null, message: `This Hivebubble ${why}, so it doesn't need a coding agent. Start it without that to work through Claude Code.`, outcome: 'unknown' };
+    }
+    switch (name) {
+      case 'hello':
+        return { project: this.opts.project, site: this.opts.site?.() ?? null, ...this.harness.state() };
+      case 'next': {
+        const wait = Math.max(0, Math.min(120, Number(body.wait ?? 50) || 0));
+        return { request: await this.harness.next(wait * 1000, client, signal) };
+      }
+      case 'say':
+        return { message: this.harness.sayFromAgent(body.text, client) };
+      case 'finish':
+        return await this.harness.finish(body.request_id, body.summary, client);
+      case 'event':
+        return this.harness.event(body);
+      case 'data/schema':
+        return { text: (await this.harness.data?.schema()) ?? 'Users & Data isn’t available.' };
+      case 'data/query':
+        return { text: (await this.harness.data?.query(body)) ?? 'Users & Data isn’t available.' };
+      case 'data/change':
+        return { text: (await this.harness.data?.change(body)) ?? 'Users & Data isn’t available.' };
+      default:
+        throw new ApiNotFound(`No harness call named "${name}".`);
+    }
   }
 
   attach(ws: WebSocket): void {
@@ -43,7 +165,13 @@ export class Session {
       busy: this.busy,
       canUndo: this.checkpoints.canUndo(),
       history: this.history,
+      sourceTags: this.sourceTags,
+      spend: this.spend(),
+      draft: this.draft,
+      harness: this.opts.agent === 'harness' ? this.harness.state() : undefined,
     });
+    // A reloaded page still gets the open question.
+    if (this.pendingConfirm) this.send(ws, this.pendingConfirm.event);
     ws.on('message', (data) => {
       let msg: ClientMessage;
       try {
@@ -58,91 +186,325 @@ export class Session {
   }
 
   async handle(msg: ClientMessage): Promise<void> {
-    if (msg.type === 'stop') {
-      this.abort?.abort();
-      return;
-    }
-    if (msg.type === 'undo') {
-      if (this.busy) {
-        this.broadcast({ type: 'error', message: 'Wait for the current task to finish, or press Stop, before undoing.' });
+    switch (msg.type) {
+      case 'stop':
+        this.abort?.abort();
+        this.pendingConfirm?.answer(false);
         return;
-      }
-      const files = this.checkpoints.undo();
-      this.claudeSession = undefined; // Claude's memory no longer matches the files.
-      this.broadcast({ type: 'undone', files, canUndo: this.checkpoints.canUndo() });
-      const text = files.length > 0 ? `Undid the last change (${files.length} file${files.length === 1 ? '' : 's'}).` : 'Nothing to undo.';
-      this.remember({ role: 'system', text });
-      this.opts.log(text);
+      case 'confirm':
+        if (this.pendingConfirm?.event.id === msg.id) this.pendingConfirm.answer(Boolean(msg.ok));
+        return;
+      case 'page-error':
+        if (typeof msg.message !== 'string') return;
+        this.errors.add('page', msg.message, typeof msg.source === 'string' ? msg.source : undefined);
+        if (this.busy) {
+          this.pageErrors.push(`${msg.message}${msg.source ? `\n${msg.source}` : ''}`.slice(0, 2000));
+          if (this.pageErrors.length > 30) this.pageErrors.shift();
+        }
+        return;
+      case 'undo':
+        return this.undo(Boolean(msg.force));
+      case 'chat':
+        return this.chat(msg);
+      case 'deploy-info':
+        return this.deployInfo();
+      case 'deploy':
+        return this.deploy(msg.host);
+      case 'data-info':
+      case 'data-ask':
+      case 'data-run':
+      case 'data-apply':
+      case 'data-cancel':
+      case 'data-changes':
+      case 'data-undo':
+      case 'data-logs':
+        return this.data.handle(msg);
+    }
+  }
+
+  private deployInfo(): void {
+    const info = this.opts.info;
+    if (!info) {
+      this.broadcast({ type: 'deploy-info', hosts: [], env: [], supported: false, why: 'Putting a site online needs a project Hivebubble started' });
       return;
     }
-    if (msg.type === 'chat') await this.chat(msg);
+    const env = this.opts.deploy?.env ?? process.env;
+    const why = deploySupport(info);
+    this.broadcast({ type: 'deploy-info', hosts: hostCards(info, env), env: envNeeds(info.dir), supported: !why, why: why ?? undefined });
+  }
+
+  /** A deploy is a task like any other: it blocks new messages, sends the bees out, and Stop cancels it. */
+  private async deploy(host: HostId): Promise<void> {
+    const info = this.opts.info;
+    if (!info) return;
+    if (this.busy || this.pendingConfirm) {
+      this.broadcast({ type: 'error', message: 'Wait for the current task to finish before putting the site online.' });
+      return;
+    }
+    this.busy = true;
+    this.abort = new AbortController();
+    this.broadcast({ type: 'status', state: 'working' });
+    try {
+      const url = await deploySite(info, host, (e) => this.broadcast(e), { ...this.opts.deploy, signal: this.abort.signal });
+      this.remember({ role: 'system', text: `The site is live at ${url}` });
+      this.opts.log(`Deployed to ${host}: ${url}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.opts.log(`Deploying to ${host} didn't work: ${message.split('\n')[0]}`);
+      if (!this.abort?.signal.aborted) this.errors.add('deploy', message, (err as { buildLog?: string }).buildLog);
+    } finally {
+      this.busy = false;
+      this.abort = null;
+      this.broadcast({ type: 'status', state: 'idle' });
+    }
+  }
+
+  private undo(force: boolean): void {
+    if (this.busy || this.pendingConfirm) {
+      this.broadcast({ type: 'error', message: 'Wait for the current task to finish, or press Stop, before undoing.' });
+      return;
+    }
+    const id = this.checkpoints.history()[0]?.id;
+    const { files, conflicts } = this.checkpoints.undo(force);
+    if (conflicts.length > 0 && !force) {
+      this.broadcast({ type: 'undo-conflict', files: conflicts });
+      return;
+    }
+    if (files.length > 0) {
+      this.claudeSession = undefined; // Claude's memory no longer matches the files.
+      this.lastUndone = true; // The next request goes one level deeper (README §6).
+      if (id) this.routerLog.markUndone(id);
+    }
+    this.broadcast({ type: 'undone', files, canUndo: this.checkpoints.canUndo() });
+    const text = files.length > 0 ? `Undid the last change (${files.length} file${files.length === 1 ? '' : 's'}).` : 'Nothing to undo.';
+    this.remember({ role: 'system', text });
+    this.opts.log(text);
+  }
+
+  private askToConfirm(route: Route, estimate: CostEstimate, spend: SpendSummary): Promise<boolean> {
+    return this.ask({ kind: 'cost', route, estimate, spend });
+  }
+
+  /** Ask the bubble a yes/no question and wait (a reloaded page gets it again; Stop says no). */
+  private ask(question: AskPayload): Promise<boolean> {
+    return new Promise((resolve) => {
+      const event = { type: 'confirm' as const, id: randomUUID(), ...question } as ConfirmEvent;
+      const timer = setTimeout(() => answer(false), CONFIRM_TIMEOUT_MS);
+      const answer = (ok: boolean) => {
+        clearTimeout(timer);
+        if (this.pendingConfirm?.event === event) this.pendingConfirm = null;
+        resolve(ok);
+      };
+      this.pendingConfirm = { event, answer };
+      this.broadcast(event);
+    });
+  }
+
+  private finishEarly(summary: string, ok = false): void {
+    this.say(summary);
+    this.broadcast({ type: 'done', ok, summary, durationMs: 0, canUndo: this.checkpoints.canUndo() });
   }
 
   private async chat(msg: Extract<ClientMessage, { type: 'chat' }>): Promise<void> {
     const text = String(msg.text ?? '').trim();
     if (!text) return;
-    if (this.busy) {
+    if (this.busy || this.pendingConfirm) {
       this.broadcast({ type: 'error', message: 'Still working on the last request. Press Stop to cancel it.' });
       return;
     }
 
-    const route = routeTask({ text, hasElement: Boolean(msg.element), mode: msg.mode, previousFailed: this.lastFailed });
+    const route = routeTask({
+      text,
+      hasElement: Boolean(msg.element),
+      elementSrc: msg.element?.src,
+      mode: msg.mode,
+      thinkHarder: Boolean(msg.thinkHarder),
+      previousFailed: this.lastFailed,
+      previousUndone: this.lastUndone,
+      emptyProject: this.opts.isEmpty?.() ?? false,
+    });
+    this.lastUndone = false;
+    this.draft = undefined;
     this.remember({ role: 'user', text, route });
     this.broadcast({ type: 'user', text, route });
-    this.opts.log(`Task (${route.label} · ${route.effort} effort): ${text}`);
+    this.opts.log(`Task (${route.label} · ${route.effort} effort · ${route.signals.join(', ') || 'no signals'}): ${text}`);
 
-    if (this.opts.agent === 'missing-key' || this.opts.agent === 'invalid-key') {
-      const summary =
-        this.opts.agent === 'invalid-key'
+    const { agent } = this.opts;
+    if (agent === 'missing-key' || agent === 'invalid-key') {
+      return this.finishEarly(
+        agent === 'invalid-key'
           ? "Anthropic rejected your API key, so Claude can't make changes. Paste a working key in Hivebubble's settings (or ANTHROPIC_API_KEY in .env.local) and restart."
-          : "Add your Anthropic API key to start building: open Hivebubble's settings, or put ANTHROPIC_API_KEY in .env.local. Hivebubble can't use a Claude.ai subscription login.";
-      this.say(summary);
-      this.broadcast({ type: 'done', ok: false, summary, durationMs: 0, canUndo: this.checkpoints.canUndo() });
-      return;
+          : "Add your Anthropic API key to start building: open Hivebubble's settings, or put ANTHROPIC_API_KEY in .env.local. Hivebubble can't use a Claude.ai subscription login.",
+      );
     }
 
+    const claude = agent === 'claude';
+    // A coding agent the person runs (Claude Code): no API key, no cost meter here.
+    const harness = agent === 'harness';
+    const settings = readSettings();
+    const spend = this.ledger.summary(settings.dailyCapUsd);
+    if (claude && spend.remainingUsd < 0.01) {
+      this.broadcast({ type: 'paused', spend });
+      return this.finishEarly(
+        `Paused for today: Claude has cost ${money(spend.todayUsd)} today, which reaches your daily limit of ${money(spend.dailyCapUsd)}. Raise the limit in the Hivebubble app, or come back tomorrow.`,
+      );
+    }
+    // A reviewed registry skill that fits this request: offer it once (README §8).
+    const offer = claude || harness ? suggestSkill(this.opts.cwd, route, text) : null;
+    if (offer) {
+      const yes = await this.ask({
+        kind: 'skill',
+        skill: { id: offer.id, title: offer.title, description: offer.description, author: offer.author, license: offer.license, verified: offer.verified, url: sourceUrl(offer.source) },
+      });
+      if (yes) {
+        try {
+          await installSkill(this.opts.cwd, offer.id, text);
+          this.say(`Added the ${offer.title} skill to this project.`);
+          this.opts.log(`Added the ${offer.title} skill (${offer.source.repo} @ ${offer.source.sha.slice(0, 7)}).`);
+        } catch (err) {
+          this.say(`Couldn't add the ${offer.title} skill (${err instanceof Error ? err.message : String(err)}). Carrying on without it.`);
+        }
+      } else {
+        declineSkill(this.opts.cwd, offer.id);
+      }
+    }
+    if (claude && (route.effort === 'xhigh' || route.effort === 'max')) {
+      const estimate = estimateCost(route.effort, this.routerLog.costs(route.effort));
+      if (!(await this.askToConfirm(route, estimate, spend))) return this.finishEarly('Okay, the hive stays home. Nothing was changed.');
+    }
+
+    const taskCap = this.opts.maxBudgetUsd ?? settings.taskCapUsd;
     this.busy = true;
     this.abort = new AbortController();
+    const abort = this.abort;
+    this.pageErrors = [];
     this.broadcast({ type: 'status', state: 'working' });
     const started = Date.now();
-    this.checkpoints.begin();
-    const ctx = {
-      cwd: this.opts.cwd,
-      emit: (e: ServerEvent) => {
-        if (e.type === 'say') this.remember({ role: e.role, text: e.text });
-        this.broadcast(e);
-      },
-      checkpoints: this.checkpoints,
-      abort: this.abort,
-    };
+    const taskId = `${started.toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    this.checkpoints.begin(text, taskId);
 
-    const result =
-      this.opts.agent === 'mock'
-        ? await runMock(ctx, { text, element: msg.element })
-        : await runClaude(ctx, {
-            prompt: buildPrompt(text, msg.element),
-            route,
-            apiKey: this.opts.apiKey ?? '',
-            resume: this.claudeSession,
-            maxBudgetUsd: this.opts.maxBudgetUsd,
-          });
+    let effort = route.effort;
+    let prompt = buildPrompt(text, msg.element);
+    let spent = 0;
+    let result: AgentResult = { ok: false, summary: 'Stopped.' };
+    let checkResults: CheckResult[] | undefined;
+    const attempts: Attempt[] = [];
 
-    this.checkpoints.commit();
-    if (result.sessionId) this.claudeSession = result.sessionId;
+    for (let attempt = 1; ; attempt++) {
+      const attemptStarted = Date.now();
+      const before = spent;
+      const ctx: AgentContext = {
+        cwd: this.opts.cwd,
+        emit: (e) => {
+          if (e.type === 'say') this.remember({ role: e.role, text: e.text });
+          // The meter shows the whole task, earlier attempts included.
+          this.broadcast(e.type === 'cost' ? { type: 'cost', usd: before + e.usd } : e);
+        },
+        checkpoints: this.checkpoints,
+        abort,
+      };
+      result =
+        agent === 'mock'
+          ? await runMock(ctx, { text, element: msg.element })
+          : harness
+            ? await this.harness.run(ctx, { kind: attempt === 1 ? 'task' : 'fix', text, prompt, checks: route.checks, site: this.opts.site?.() ?? null })
+            : await (this.opts.runClaude ?? runClaude)(ctx, {
+              prompt,
+              route: { ...route, effort },
+              apiKey: this.opts.apiKey ?? '',
+              resume: this.claudeSession,
+              // Never more than the task's cap, or than what's left of today's limit.
+              maxBudgetUsd: Math.max(0.05, Math.min(taskCap - spent, spend.remainingUsd - spent)),
+              skills: skillsForTask(this.opts.cwd, route, text),
+            });
+      if (result.sessionId) this.claudeSession = result.sessionId;
+      spent += result.costUsd ?? 0;
+      attempts.push({ effort, ok: result.ok, costUsd: result.costUsd ?? 0, durationMs: Date.now() - attemptStarted, tokens: result.tokens });
+      if (!result.ok || abort.signal.aborted) break;
+
+      const changed = this.checkpoints.touched();
+      if (changed.length === 0 || route.checks.length === 0 || !this.opts.checker) {
+        checkResults = undefined;
+        break;
+      }
+      await sleep(SETTLE_MS);
+      checkResults = await this.opts.checker.run(
+        route.checks,
+        { changed, pageErrors: [...this.pageErrors], signal: abort.signal },
+        {
+          onStart: (check) => this.broadcast({ type: 'check', phase: 'start', check, label: CHECK_LABELS[check] }),
+          onEnd: (r) => this.broadcast({ type: 'check', phase: 'end', check: r.check, label: CHECK_LABELS[r.check], result: r }),
+        },
+      );
+      const failed = checkResults.filter((r) => !r.ok && !r.skipped);
+      if (failed.length === 0 || abort.signal.aborted) break;
+      const which = failed.map((f) => CHECK_NAMES[f.check]).join(' and ');
+      if (attempt >= 2 || !(claude || harness)) {
+        result = {
+          ...result,
+          ok: false,
+          summary: `Not quite done: the ${which} check still fails. The changes are still there. Press Undo to go back, or tell the hive what to fix.\n\n${failed[0].detail ?? ''}`.trim(),
+        };
+        break;
+      }
+      // One retry, one effort level up (README §6). A coding agent picks its own effort.
+      effort = shiftEffort(effort, 1);
+      const reason = harness
+        ? `The ${which} check failed, so ${this.harness.state().client} tries once more with the error in hand.`
+        : `The ${which} check failed, so the hive tries once more at ${EFFORT_LABELS[effort]} effort.`;
+      this.remember({ role: 'system', text: reason });
+      this.broadcast({ type: 'retry', route: { ...route, effort, label: EFFORT_LABELS[effort], reason }, reason });
+      this.opts.log(reason);
+      prompt = retryPrompt(failed);
+      this.pageErrors = [];
+    }
+
+    const filesChanged = this.checkpoints.touched().length;
+    const committed = this.checkpoints.commit();
+    const stopped = abort.signal.aborted;
+    const ok = result.ok && !stopped;
+    if (harness) this.harness.settle({ ok, summary: result.summary, stopped });
     // Only a real Claude attempt that failed on its own earns the next try more effort:
     // demo mode can't do most things, and pressing Stop isn't a failure.
-    const stopped = this.abort?.signal.aborted ?? false;
-    this.lastFailed = !result.ok && this.opts.agent === 'claude' && !stopped;
+    this.lastFailed = !ok && claude && !stopped;
     this.busy = false;
     this.abort = null;
     const durationMs = Date.now() - started;
-    if (!result.ok && !this.history.some((h, i) => i === this.history.length - 1 && h.text === result.summary)) {
+    if (claude && spent > 0) this.ledger.add(spent);
+    this.routerLog.record({
+      id: taskId,
+      at: new Date(started).toISOString(),
+      text,
+      kind: route.kind,
+      effort: route.effort,
+      mode: msg.mode,
+      signals: route.signals,
+      checks: route.checks,
+      attempts,
+      checkResults,
+      outcome: stopped ? 'stopped' : ok ? 'done' : 'failed',
+      filesChanged: committed ? filesChanged : 0,
+      costUsd: spent,
+      durationMs,
+    });
+    if (!ok && !this.history.some((h, i) => i === this.history.length - 1 && h.text === result.summary)) {
       this.remember({ role: 'system', text: result.summary });
     }
-    this.broadcast({ type: 'done', ok: result.ok, summary: result.summary, costUsd: result.costUsd, durationMs, canUndo: this.checkpoints.canUndo() });
+    this.broadcast({
+      type: 'done',
+      ok,
+      summary: result.summary,
+      costUsd: claude ? spent : undefined,
+      durationMs,
+      canUndo: this.checkpoints.canUndo(),
+      checks: checkResults,
+      attempts: attempts.length,
+    });
     this.broadcast({ type: 'status', state: 'idle' });
-    const cost = result.costUsd !== undefined ? ` · $${result.costUsd.toFixed(3)}` : '';
-    this.opts.log(`${result.ok ? 'Done' : 'Not done'} in ${(durationMs / 1000).toFixed(1)}s${cost}: ${result.summary}`);
+    if (claude) this.broadcast({ type: 'spend', spend: this.spend() });
+    const cost = claude ? ` · ${money(spent)}` : '';
+    const checked = checkResults?.length ? ` · checks: ${checkResults.map((r) => `${r.check} ${r.skipped ? 'skipped' : r.ok ? 'ok' : 'failed'}`).join(', ')}` : '';
+    this.opts.log(`${ok ? 'Done' : 'Not done'} in ${(durationMs / 1000).toFixed(1)}s${cost}${checked}: ${result.summary.split('\n')[0]}`);
   }
 
   private say(text: string): void {
@@ -165,6 +527,8 @@ export class Session {
 
   stop(): void {
     this.abort?.abort();
+    this.pendingConfirm?.answer(false);
+    this.harness.stop();
     for (const ws of this.clients) ws.close();
   }
 }

@@ -1,7 +1,39 @@
+import { timingSafeEqual } from 'node:crypto';
 import http from 'node:http';
 import net from 'node:net';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { BUBBLE_PATH, STRIPPED_HTML_HEADERS, WS_PATH, injectBubble } from './inject.js';
+
+export const PAIR_PATH = '/__hivebubble/pair';
+
+/**
+ * The Hivebubble browser extension's ID. Its manifest carries the public key
+ * this ID comes from, so every unpacked copy has it. A build published under
+ * another ID is added with HIVEBUBBLE_EXTENSION_IDS (comma separated).
+ */
+export const EXTENSION_ID = 'eooocceknjjdpfdbcgakcdmofbnmbdmb';
+
+export function extensionIds(env: NodeJS.ProcessEnv = process.env): string[] {
+  const extra = (env.HIVEBUBBLE_EXTENSION_IDS ?? '').split(',').map((s) => s.trim()).filter((s) => /^[a-p]{32}$/.test(s));
+  return [EXTENSION_ID, ...extra];
+}
+
+export interface Pairing {
+  /** A secret made when the engine starts; the extension hands it to the bubbles it adds. */
+  token: string;
+  extensionIds: string[];
+}
+
+export const HARNESS_PREFIX = '/__hivebubble/harness/';
+
+/** The local API a coding agent's plugin (Claude Code) uses: next request, say, finish, hook events, data tools. */
+export interface HarnessApi {
+  /** The key in .hivebubble/engine.json: only programs on this computer that can read the project can call it. */
+  token: string;
+  handle(name: string, body: Record<string, unknown>, client: string | undefined, signal: AbortSignal): Promise<unknown>;
+}
+
+export class ApiNotFound extends Error {}
 
 export interface ProxyOptions {
   /** The dev server port, or null while it is still starting. */
@@ -9,11 +41,121 @@ export interface ProxyOptions {
   bubbleJs: () => string;
   onClient: (ws: WebSocket) => void;
   health: () => Record<string, unknown>;
+  /** Lets the browser extension add bubbles to other localhost pages. */
+  pairing?: Pairing;
+  harness?: HarnessApi;
+}
+
+function readJsonBody(req: http.IncomingMessage, max: number): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on('data', (c: Buffer) => {
+      size += c.length;
+      if (size > max) {
+        reject(new Error('Too big.'));
+        req.destroy();
+      } else chunks.push(c);
+    });
+    req.on('end', () => {
+      try {
+        const text = Buffer.concat(chunks).toString('utf8');
+        const value: unknown = text ? JSON.parse(text) : {};
+        resolve(value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {});
+      } catch (err) {
+        reject(err);
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+async function handleHarness(req: http.IncomingMessage, res: http.ServerResponse, name: string, api: HarnessApi): Promise<void> {
+  const reply = (status: number, data: unknown) => {
+    if (res.writableEnded) return;
+    if (!res.headersSent) res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(JSON.stringify(data ?? {}));
+  };
+  // Browsers always send Origin; a coding agent's local tools don't. No web page gets in.
+  if (req.headers.origin !== undefined) return reply(403, { error: 'Not for web pages.' });
+  if (req.method !== 'POST') return reply(405, { error: 'POST only.' });
+  const auth = req.headers.authorization ?? '';
+  if (!auth.startsWith('Bearer ') || !sameSecret(auth.slice(7), api.token)) {
+    return reply(401, { error: 'Wrong or missing key. It is in the project’s .hivebubble/engine.json, and changes each time Hivebubble starts.' });
+  }
+  let body: Record<string, unknown>;
+  try {
+    body = await readJsonBody(req, 2_000_000);
+  } catch {
+    return reply(400, { error: 'The body must be a JSON object.' });
+  }
+  const ac = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) ac.abort();
+  });
+  const client = typeof req.headers['x-hivebubble-client'] === 'string' ? req.headers['x-hivebubble-client'] : undefined;
+  try {
+    reply(200, await api.handle(name, body, client, ac.signal));
+  } catch (err) {
+    reply(err instanceof ApiNotFound ? 404 : 500, { error: err instanceof Error ? err.message : String(err) });
+  }
 }
 
 const STARTING_PAGE = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="1.5">
 <title>Starting your site…</title><style>body{font:16px/1.5 system-ui,sans-serif;background:#fffaf0;color:#2b2118;display:grid;place-items:center;height:100vh;margin:0}p{opacity:.7}</style></head>
 <body><main><h1>🐝 Starting your site…</h1><p>Hivebubble is waking up your dev server. This page refreshes by itself.</p></main></body></html>`;
+
+/**
+ * True for the loopback names a browser uses to reach this machine. The proxy
+ * listens on 127.0.0.1 only, so any other Host means a page got here through
+ * DNS rebinding (a site whose name now points at 127.0.0.1) and is refused.
+ */
+export function isLocalHost(host: string | undefined): boolean {
+  if (!host) return false;
+  const name = host.toLowerCase().replace(/:\d+$/, '');
+  return name === 'localhost' || name.endsWith('.localhost') || name === '127.0.0.1' || name === '[::1]';
+}
+
+/** A page on this machine: http(s)://localhost, 127.0.0.1, [::1] or *.localhost, any port. */
+export function isLocalOrigin(origin: string | undefined): boolean {
+  const m = /^https?:\/\/([^/]+)$/.exec(origin ?? '');
+  return Boolean(m && isLocalHost(m[1]));
+}
+
+function sameSecret(given: string, expected: string): boolean {
+  const a = Buffer.from(given);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/**
+ * The bubble's socket can change the project and read its data, so only the
+ * page Hivebubble serves may open it. Browsers always send Origin on a
+ * WebSocket handshake, so another site's page is refused. Local programs
+ * that send no Origin are allowed: they can read the files anyway. A bubble
+ * the browser extension added to another localhost page brings the pairing
+ * token, which only the extension can get.
+ */
+export function allowBubbleSocket(req: http.IncomingMessage, token?: string): boolean {
+  const host = req.headers.host;
+  if (!isLocalHost(host)) return false;
+  const origin = req.headers.origin;
+  if (origin === undefined || origin === `http://${host}`) return true;
+  if (!token || !isLocalOrigin(origin)) return false;
+  const given = new URL(req.url ?? '/', 'http://x').searchParams.get('token');
+  return given !== null && sameSecret(given, token);
+}
+
+/** The extension that may fetch the pairing token, from the request's Origin; null for anything else. */
+export function extensionOrigin(req: http.IncomingMessage, ids: string[]): string | null {
+  const m = /^chrome-extension:\/\/([a-p]{32})$/.exec(req.headers.origin ?? '');
+  return m && ids.includes(m[1]) ? m[0] : null;
+}
+
+function refuse(socket: { write: (s: string) => unknown; destroy: () => unknown }): void {
+  socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+  socket.destroy();
+}
 
 /**
  * The preview proxy. It forwards every request to the dev server untouched,
@@ -26,6 +168,11 @@ export function createProxy(opts: ProxyOptions): http.Server {
 
   const server = http.createServer((req, res) => {
     const url = req.url ?? '/';
+    if (!isLocalHost(req.headers.host)) {
+      res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' });
+      res.end('Hivebubble only answers on localhost.');
+      return;
+    }
     if (url === BUBBLE_PATH || url.startsWith(`${BUBBLE_PATH}?`)) {
       res.writeHead(200, { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'no-store' });
       res.end(opts.bubbleJs());
@@ -34,6 +181,28 @@ export function createProxy(opts: ProxyOptions): http.Server {
     if (url === '/__hivebubble/health') {
       res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
       res.end(JSON.stringify(opts.health()));
+      return;
+    }
+    if (url.startsWith(HARNESS_PREFIX)) {
+      if (!opts.harness) {
+        res.writeHead(404, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'This Hivebubble has no coding-agent API.' }));
+        return;
+      }
+      void handleHarness(req, res, url.slice(HARNESS_PREFIX.length).split('?')[0], opts.harness);
+      return;
+    }
+    if (url === PAIR_PATH) {
+      // Only the Hivebubble extension gets the token: a web page can't send another Origin.
+      // POST, because Chrome leaves Origin off an extension's GET requests.
+      const ext = opts.pairing && req.method === 'POST' ? extensionOrigin(req, opts.pairing.extensionIds) : null;
+      if (!ext || !opts.pairing) {
+        res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' });
+        res.end('Only the Hivebubble browser extension can pair.');
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store', 'access-control-allow-origin': ext, vary: 'Origin' });
+      res.end(JSON.stringify({ ...opts.health(), token: opts.pairing.token }));
       return;
     }
 
@@ -85,9 +254,11 @@ export function createProxy(opts: ProxyOptions): http.Server {
   server.on('upgrade', (req, socket, head) => {
     const url = req.url ?? '/';
     if (url === WS_PATH || url.startsWith(`${WS_PATH}?`)) {
+      if (!allowBubbleSocket(req, opts.pairing?.token)) return refuse(socket);
       wss.handleUpgrade(req, socket, head, (ws) => opts.onClient(ws));
       return;
     }
+    if (!isLocalHost(req.headers.host)) return refuse(socket);
     const port = opts.target();
     if (port === null) {
       socket.destroy();

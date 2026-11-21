@@ -1,0 +1,23 @@
+{
+  "name": "hivebubble",
+  "version": "0.1.0",
+  "description": "Do what people ask for in Hivebubble's chat bubble on their running site: requests come to Claude Code, bees on the page follow your steps, and Hivebubble checks each change and keeps Undo. No API key.",
+  "author": {
+    "name": "Hivebubble"
+  },
+  "homepage": "https://github.com/AryanKuAg/hivebubble",
+  "repository": "https://github.com/AryanKuAg/hivebubble",
+  "license": "Apache-2.0",
+  "keywords": [
+    "hivebubble",
+    "website",
+    "chat bubble",
+    "no-code"
+  ],
+  "icon": ".claude-plugin/icon.png",
+  "network": {
+    "hosts": [
+      "127.0.0.1"
+    ]
+  }
+}

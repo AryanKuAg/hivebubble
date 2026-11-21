@@ -2,15 +2,16 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, milestones]
   pull_request:
 
 jobs:
   engine:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest]
+        os: [macos-latest, ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -19,5 +20,4 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - run: pnpm --filter @hivebubble/core test
+      - run: pnpm test

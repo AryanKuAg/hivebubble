@@ -1,3 +1,4 @@
+import { readConfig } from './config';
 import { mount } from './ui';
 
 declare global {
@@ -7,9 +8,12 @@ declare global {
 }
 
 (() => {
+  // Read while this script runs: currentScript is only set now.
+  const config = readConfig(document.currentScript);
   // One bubble per page, and never inside iframes.
   if (window.top !== window || window.__hivebubble) return;
   window.__hivebubble = true;
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount, { once: true });
-  else mount();
+  const start = () => mount(config);
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
+  else start();
 })();

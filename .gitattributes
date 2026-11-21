@@ -1,0 +1,8 @@
+# Same line endings on every platform (Windows checkouts would otherwise turn
+# them into CRLF, which changes file hashes and text the tests compare).
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.icns binary
+*.mp4 binary
+*.gif binary
