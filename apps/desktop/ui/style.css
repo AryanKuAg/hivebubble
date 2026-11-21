@@ -77,6 +77,12 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 18px 0; }
 .host-form select, .host-form input { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); min-width: 0; }
 .new-form { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 .new-form input { font: inherit; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); min-width: 0; }
+.steps-list { margin: 8px 0 12px; padding-left: 18px; display: grid; gap: 6px; }
+.steps-list code { display: inline-block; margin-top: 2px; padding: 2px 6px; border-radius: 6px; background: var(--honey-tint); color: var(--honey-ink); word-break: break-all; user-select: all; }
+.api-key summary { cursor: pointer; color: var(--muted); }
+.api-key[open] summary { margin-bottom: 6px; }
+.agent-status { margin: 0 0 12px; padding: 8px 12px; border-radius: 10px; background: var(--honey-tint); color: var(--honey-ink); }
+.agent-status.ok { background: rgba(30, 122, 60, 0.1); color: var(--ok); }
 .db { margin-top: 20px; }
 .db h3 { margin: 0 0 4px; }
 .db p { margin: 4px 0; }

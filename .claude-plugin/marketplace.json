@@ -1,0 +1,12 @@
+{
+  "name": "hivebubble",
+  "description": "Hivebubble: talk to your website, watch the hive build it.",
+  "owner": { "name": "Hivebubble" },
+  "plugins": [
+    {
+      "name": "hivebubble",
+      "source": "./claude-code",
+      "description": "Do what people ask for in Hivebubble's chat bubble on their running site: requests come to Claude Code, bees on the page follow your steps, and Hivebubble checks each change and keeps Undo. No API key."
+    }
+  ]
+}

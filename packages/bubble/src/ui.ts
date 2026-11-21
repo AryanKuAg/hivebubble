@@ -23,7 +23,7 @@ const TEMPLATE = `
       <span class="conn" hidden>Reconnecting…</span>
       <button class="icon-btn data-btn" type="button" title="Users & Data" aria-label="Users and data">${DATA}</button>
       <button class="icon-btn online" type="button" title="Put it online" aria-label="Put it online">${GLOBE}</button>
-      <button class="icon-btn undo" type="button" disabled title="Undo the last change">${UNDO}<span class="txt">Undo</span></button>
+      <button class="icon-btn undo" type="button" disabled title="Undo the last change" aria-label="Undo the last change">${UNDO}<span class="txt">Undo</span></button>
       <button class="icon-btn close" type="button" aria-label="Close chat">${CLOSE}</button>
     </header>
     <div class="banner" hidden></div>
@@ -299,11 +299,28 @@ export function mount(config: EngineConfig = { origin: null, token: null }): voi
     agentChip.hidden = next === 'claude';
     agentChip.classList.toggle('off', noKey);
     agentChip.textContent = next === 'mock' ? 'Demo mode' : next === 'missing-key' ? 'No API key' : next === 'invalid-key' ? 'Key rejected' : '';
+    // A coding agent (Claude Code) picks its own effort and bills its own account.
+    q<HTMLElement>('.modes').hidden = next === 'harness';
+    q<HTMLButtonElement>('.think').hidden = next === 'harness';
     banner.hidden = !noKey;
     banner.textContent =
       next === 'invalid-key'
         ? 'Anthropic rejected your API key. Paste a working key in the Hivebubble app, then restart the project.'
         : 'Add your Anthropic API key in the Hivebubble app (or ANTHROPIC_API_KEY in .env.local) so Claude can make changes.';
+  }
+
+  /** Which coding agent is connected (the harness agent): the chip says so, or how to connect one. */
+  function setHarness(state: { connected: boolean; client: string }): void {
+    if (agent !== 'harness') return;
+    agentChip.hidden = false;
+    agentChip.classList.toggle('off', !state.connected);
+    agentChip.classList.toggle('ok', state.connected);
+    agentChip.textContent = state.connected ? '✓ Connected' : 'Not connected';
+    agentChip.title = state.connected
+      ? `${state.client} is connected and does the work: what you ask for here goes to it.`
+      : 'Open Claude Code in this project’s folder and type /hivebubble:work. Messages you send wait for it.';
+    banner.hidden = state.connected;
+    banner.textContent = 'To start, open Claude Code in this project’s folder and type /hivebubble:work. What you write here waits for it. (First time: claude plugin install hivebubble --marketplace AryanKuAg/hivebubble)';
   }
 
   function setSpend(spend: SpendSummary): void {
@@ -343,6 +360,7 @@ export function mount(config: EngineConfig = { origin: null, token: null }): voi
         messages.replaceChildren();
         working = null;
         setAgent(e.agent);
+        if (e.harness) setHarness(e.harness);
         for (const entry of e.history) addMessage(entry.role, entry.text, entry.route);
         swarm.sourceTags = e.sourceTags;
         setSpend(e.spend);
@@ -412,6 +430,9 @@ export function mount(config: EngineConfig = { origin: null, token: null }): voi
       case 'paused':
       case 'spend':
         setSpend(e.spend);
+        break;
+      case 'harness':
+        setHarness(e);
         break;
       case 'deploy-info':
         deployView.setInfo(e);

@@ -1,8 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { claudeAsker, demoAsker, fillHeadline, type Asker } from './dataAsk.js';
-import { applyChange, backupsDir, listChanges, prepareChange, proposalView, undoChange, type Proposal } from './dataChanges.js';
+import { applyChange, backupsDir, listChanges, prepareChange, proposalView, undoChange, type ChangePlan, type Proposal } from './dataChanges.js';
 import { DataError, describeDatabase, findDatabase, friendlyDbError, loadSchema, localTimeZone, runReadOnly, schemaText, type Schema } from './db.js';
 import { readSettings } from './home.js';
+import type { HarnessBridge, HarnessDataTools } from './harness.js';
 import { authActivity, groupErrors, type ErrorLog } from './logs.js';
 import type { SpendLedger } from './cost.js';
 import type { AgentKind, ClientMessage, ServerEvent } from './types.js';
@@ -19,6 +20,8 @@ export interface DataDeskOptions {
   env?: NodeJS.ProcessEnv;
   /** Replaces Claude (tests). */
   asker?: Asker;
+  /** With the harness agent: questions go to the person's coding agent (Claude Code). */
+  harness?: HarnessBridge;
   timeZone?: string;
 }
 
@@ -36,8 +39,12 @@ export class DataDesk {
   private schema: { url: string; at: number; schema: Schema } | null = null;
   private readonly proposals = new Map<string, Proposal>();
   private queue: Promise<void> = Promise.resolve();
+  /** The question the coding agent is answering, for the cards it shows. */
+  private agentQuestion = '';
 
-  constructor(private readonly o: DataDeskOptions) {}
+  constructor(private readonly o: DataDeskOptions) {
+    if (o.harness) o.harness.data = this.harnessTools();
+  }
 
   private get env(): NodeJS.ProcessEnv {
     return this.o.env ?? process.env;
@@ -105,7 +112,7 @@ export class DataDesk {
 
   private async info(): Promise<void> {
     const base = {
-      canAsk: this.o.agent === 'claude' || this.o.agent === 'mock' || Boolean(this.o.asker),
+      canAsk: this.o.agent === 'claude' || this.o.agent === 'mock' || Boolean(this.o.asker || this.o.harness),
       demo: this.o.agent === 'mock',
       app: this.env.HIVEBUBBLE_APP === '1',
     };
@@ -138,6 +145,7 @@ export class DataDesk {
     const question = raw.trim().slice(0, 2000);
     if (!question) return;
     const src = this.needSource();
+    if (this.o.harness && !this.o.asker) return this.askAgent(question);
     const claude = !this.o.asker && this.o.agent === 'claude';
     if (claude) {
       const spend = this.o.ledger.summary(readSettings().dailyCapUsd);
@@ -227,6 +235,76 @@ export class DataDesk {
     }
   }
 
+  /** A question for the person's coding agent: it answers with the data tools below. */
+  private askAgent(question: string): void {
+    const harness = this.o.harness!;
+    const { connected, client } = harness.state();
+    this.agentQuestion = question;
+    this.o.emit({
+      type: 'data-working',
+      message: connected ? `${client} is looking into it…` : 'Waiting for Claude Code. Open it in this project’s folder and type /hivebubble:work.',
+    });
+    void harness
+      .ask(question, (text) => this.o.emit({ type: 'data-reply', question, text }))
+      .then((r) => this.o.emit({ type: 'data-reply', question, text: r.ok ? r.summary : 'Stopped.' }));
+  }
+
+  /**
+   * Users & Data tools for the coding agent. Results and previews go to the
+   * bubble; the agent gets the number of rows and the column names, never the
+   * rows themselves.
+   */
+  private harnessTools(): HarnessDataTools {
+    const text = (v: unknown, max = 4000) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+    const source = () => {
+      const src = this.source();
+      if (!src) throw new DataError('No database is connected. The person connects one in Users & Data (the database button in the bubble).');
+      return src;
+    };
+    return {
+      schema: async () => {
+        try {
+          const schema = await this.getSchema(source().url, true);
+          return schemaText(schema) || 'The database has no tables Hivebubble can read.';
+        } catch (err) {
+          return this.explain(err);
+        }
+      },
+      query: async (args) => {
+        const sql = text(args.sql, 20_000);
+        try {
+          const result = await runReadOnly(source().url, sql, { timeZone: this.timeZone });
+          this.o.emit({
+            type: 'data-result',
+            question: this.agentQuestion || undefined,
+            sql,
+            headline: fillHeadline(text(args.headline, 300) || '{count} rows', result),
+            explanation: text(args.explanation, 600) || undefined,
+            table: { columns: result.columns, rows: result.rows, truncated: result.truncated },
+            ms: result.ms,
+          });
+          const n = `${result.rows.length}${result.truncated ? '+' : ''}`;
+          return `Showed ${n} row${n === '1' ? '' : 's'} to the person in the bubble (columns: ${result.columns.map((c) => c.name).join(', ') || 'none'}). The rows stay there.`;
+        } catch (err) {
+          return `The query didn't run: ${this.explain(err)} Fix it and call data_query again.`;
+        }
+      },
+      change: async (args) => {
+        try {
+          const src = source();
+          const plan = toPlan(args);
+          const proposal = await prepareChange(src.url, await this.getSchema(src.url), plan, { question: this.agentQuestion, timeZone: this.timeZone });
+          this.prune();
+          this.proposals.set(proposal.id, proposal);
+          this.o.emit({ type: 'data-proposal', question: this.agentQuestion, explanation: text(args.explanation, 600) || undefined, proposal: proposalView(proposal) });
+          return `Showed the change to the person: ${proposal.rows.length} row${proposal.rows.length === 1 ? '' : 's'} in ${proposal.table.schema}.${proposal.table.name}. They confirm or cancel it in the bubble; you don't need to wait.`;
+        } catch (err) {
+          return `Hivebubble can't make that change: ${this.explain(err)}`;
+        }
+      },
+    };
+  }
+
   private async logs(): Promise<void> {
     const groups = groupErrors(this.o.errorLog.read(), this.o.projectDir);
     const src = this.source();
@@ -241,4 +319,21 @@ export class DataDesk {
     }
     this.o.emit({ type: 'data-logs', groups, auth, authProblem });
   }
+}
+
+/** A change described by the coding agent, checked for shape (dataChanges checks the rest). */
+function toPlan(args: Record<string, unknown>): ChangePlan {
+  const action = args.action;
+  if (action !== 'update' && action !== 'delete' && action !== 'insert') throw new DataError('action must be update, delete or insert.');
+  const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+  const set = Array.isArray(args.set) ? args.set : [];
+  return {
+    action,
+    table: str(args.table),
+    where: str(args.where),
+    set: set
+      .filter((x): x is Record<string, unknown> => Boolean(x) && typeof x === 'object')
+      .map((x) => ({ column: str(x.column), value: str(x.value) })),
+    summary: str(args.summary) || 'A change to the data',
+  };
 }

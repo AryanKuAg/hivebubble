@@ -444,7 +444,9 @@ fn start_project(app: AppHandle, state: State<AppState>, project: String, demo: 
     if demo {
         cmd.arg("--mock-agent");
     } else if let Some(key) = stored_key() {
-        cmd.env("ANTHROPIC_API_KEY", key);
+        // A saved key is an explicit choice: Hivebubble's own agent, billed to that API account.
+        // Without one, Claude Code does the work through Hivebubble's plugin (no key).
+        cmd.arg("--agent").arg("api").env("ANTHROPIC_API_KEY", key);
     }
     if let Some(prompt) = prompt.filter(|p| !p.trim().is_empty()) {
         cmd.arg("--prompt").arg(prompt);

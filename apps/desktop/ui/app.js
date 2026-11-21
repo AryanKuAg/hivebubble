@@ -336,6 +336,7 @@ function showRunning(project) {
   $('project-path').textContent = project;
   $('live').hidden = true;
   $('status').textContent = 'Starting…';
+  $('agent-status').hidden = true;
   $('status').classList.remove('error');
   $('stop').textContent = 'Stop';
   logLines = [];
@@ -365,6 +366,16 @@ function appendLog(line) {
   const pre = $('log');
   pre.textContent = logLines.join('\n');
   pre.scrollTop = pre.scrollHeight;
+}
+
+// ---- Claude Code: is it connected to this project? (the engine says so) ----
+function showAgent(connected, client) {
+  const el = $('agent-status');
+  el.hidden = false;
+  el.classList.toggle('ok', Boolean(connected));
+  el.textContent = connected
+    ? `✓ ${client || 'Claude Code'} is connected. What you ask for in the bubble goes to it.`
+    : 'Waiting for Claude Code: open it in this project’s folder and type /hivebubble:work.';
 }
 
 // ---- Users & Data: the project's database connection, kept in the Keychain ----
@@ -433,7 +444,13 @@ listen('core-event', (event) => {
     appendLog(msg.source === 'hivebubble' ? msg.line : `[${msg.source}] ${msg.line}`);
     return;
   }
+  if (msg.event === 'harness') {
+    showAgent(msg.connected, msg.client);
+    return;
+  }
   if (msg.event !== 'status') return;
+  // No API key: Claude Code does the work. Say so until it connects.
+  if (msg.state === 'ready' && msg.agent === 'harness' && $('agent-status').hidden) showAgent(false);
   $('status').textContent = msg.message;
   $('status').classList.toggle('error', msg.state === 'error');
   setStep(msg.state);

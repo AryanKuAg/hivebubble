@@ -22,6 +22,9 @@ Usage:
 
 Options:
   --port <n>          Preview port to try first (default 4321)
+  --agent <who>       Who does the work: harness (default: Claude Code with Hivebubble's
+                      plugin, no API key), api (Hivebubble's own agent with an Anthropic
+                      API key) or mock (demo mode)
   --mock-agent        Demo mode: a local stand-in agent, no Claude calls
   --max-budget <usd>  Spending limit for one task (default: the saved setting, $2)
   --daily-cap <usd>   Pause once Claude has cost this much today (default: the saved setting, $5)
@@ -37,7 +40,10 @@ Options:
 new: --for "<what to build>" picks the starter (or --starter <id>); --accept-license
      allows a starter whose license has obligations.
 
-Claude needs your own Anthropic API key in ANTHROPIC_API_KEY (or in .env.local).`;
+No API key needed: open Claude Code in the project's folder and type /hivebubble:work.
+First time, add the plugin: claude plugin marketplace add AryanKuAg/hivebubble
+                            claude plugin install hivebubble@hivebubble
+With --agent api, Claude needs your Anthropic API key in ANTHROPIC_API_KEY (or .env.local).`;
 
 function run(): void {
   const { values, positionals } = parseArgs({
@@ -45,6 +51,7 @@ function run(): void {
     options: {
       port: { type: 'string' },
       'mock-agent': { type: 'boolean', default: false },
+      agent: { type: 'string' },
       'max-budget': { type: 'string' },
       'daily-cap': { type: 'string' },
       prompt: { type: 'string' },
@@ -69,6 +76,7 @@ function run(): void {
     ? {
         status: (state, message, extra) => console.log(JSON.stringify({ event: 'status', state, message, ...extra })),
         log: (source, line) => console.log(JSON.stringify({ event: 'log', source, line })),
+        event: (name, data) => console.log(JSON.stringify({ ...data, event: name })),
       }
     : {
         status: (state, message) => console.log(`${state === 'error' ? '✖' : state === 'ready' ? '🐝' : '›'} ${message}`),
@@ -95,7 +103,7 @@ function run(): void {
   startHivebubble({
     projectDir,
     port: values.port ? Number(values.port) : undefined,
-    agent: values['mock-agent'] ? 'mock' : 'auto',
+    agent: values['mock-agent'] || values.agent === 'mock' ? 'mock' : values.agent === 'api' ? 'api' : 'harness',
     apiKey: process.env.ANTHROPIC_API_KEY,
     maxBudgetUsd: values['max-budget'] ? Number(values['max-budget']) : undefined,
     draft: values.prompt,

@@ -14,6 +14,8 @@ import { declineSkill, installSkill, skillsForTask, suggestSkill } from './skill
 import { deploySite, deploySupport, envNeeds, hostCards, type DeployOptions } from './deploy.js';
 import { DataDesk } from './dataDesk.js';
 import type { Asker } from './dataAsk.js';
+import { HarnessBridge } from './harness.js';
+import { ApiNotFound } from './proxy.js';
 import { ErrorLog } from './logs.js';
 import type { ProjectInfo } from './project.js';
 import type { HostId } from './types.js';
@@ -52,6 +54,8 @@ export interface SessionOptions {
   deploy?: Omit<Partial<DeployOptions>, 'signal'>;
   /** Users & Data settings for tests (a stand-in for Claude, a fixed environment and time zone). */
   data?: { asker?: Asker; env?: NodeJS.ProcessEnv; timeZone?: string };
+  /** The person's own dev server, e.g. http://localhost:5173: named in requests for a coding agent. */
+  site?: () => string | null;
 }
 
 const MAX_HISTORY = 200;
@@ -90,6 +94,8 @@ export class Session {
   sourceTags = false;
   /** Errors from the page, the dev server and builds, for the logs summary. */
   readonly errors: ErrorLog;
+  /** Requests for a coding agent the person runs (Claude Code), with the harness agent. */
+  readonly harness: HarnessBridge;
   private readonly data: DataDesk;
 
   constructor(private readonly opts: SessionOptions) {
@@ -98,7 +104,9 @@ export class Session {
     this.ledger = opts.ledger ?? new SpendLedger();
     this.draft = opts.draft?.trim() || undefined;
     this.errors = new ErrorLog(opts.cwd);
+    this.harness = new HarnessBridge(opts.cwd, (e) => this.broadcast(e), opts.log);
     this.data = new DataDesk({
+      harness: opts.agent === 'harness' ? this.harness : undefined,
       projectDir: opts.cwd,
       agent: opts.agent,
       apiKey: opts.apiKey,
@@ -114,6 +122,40 @@ export class Session {
     return this.ledger.summary(readSettings().dailyCapUsd);
   }
 
+  /**
+   * The local API for a coding agent's plugin (proxy.ts checks the key first):
+   * hello, next, say, finish, event (from hooks) and the Users & Data tools.
+   */
+  async harnessApi(name: string, body: Record<string, unknown>, client: string | undefined, signal: AbortSignal): Promise<unknown> {
+    if (this.opts.agent !== 'harness') {
+      const why = this.opts.agent === 'mock' ? 'runs in demo mode' : 'uses its own agent with an API key';
+      if (name === 'event') return {};
+      return { request: null, message: `This Hivebubble ${why}, so it doesn't need a coding agent. Start it without that to work through Claude Code.`, outcome: 'unknown' };
+    }
+    switch (name) {
+      case 'hello':
+        return { project: this.opts.project, site: this.opts.site?.() ?? null, ...this.harness.state() };
+      case 'next': {
+        const wait = Math.max(0, Math.min(120, Number(body.wait ?? 50) || 0));
+        return { request: await this.harness.next(wait * 1000, client, signal) };
+      }
+      case 'say':
+        return { message: this.harness.sayFromAgent(body.text, client) };
+      case 'finish':
+        return await this.harness.finish(body.request_id, body.summary, client);
+      case 'event':
+        return this.harness.event(body);
+      case 'data/schema':
+        return { text: (await this.harness.data?.schema()) ?? 'Users & Data isn’t available.' };
+      case 'data/query':
+        return { text: (await this.harness.data?.query(body)) ?? 'Users & Data isn’t available.' };
+      case 'data/change':
+        return { text: (await this.harness.data?.change(body)) ?? 'Users & Data isn’t available.' };
+      default:
+        throw new ApiNotFound(`No harness call named "${name}".`);
+    }
+  }
+
   attach(ws: WebSocket): void {
     this.clients.add(ws);
     this.send(ws, {
@@ -126,6 +168,7 @@ export class Session {
       sourceTags: this.sourceTags,
       spend: this.spend(),
       draft: this.draft,
+      harness: this.opts.agent === 'harness' ? this.harness.state() : undefined,
     });
     // A reloaded page still gets the open question.
     if (this.pendingConfirm) this.send(ws, this.pendingConfirm.event);
@@ -296,6 +339,8 @@ export class Session {
     }
 
     const claude = agent === 'claude';
+    // A coding agent the person runs (Claude Code): no API key, no cost meter here.
+    const harness = agent === 'harness';
     const settings = readSettings();
     const spend = this.ledger.summary(settings.dailyCapUsd);
     if (claude && spend.remainingUsd < 0.01) {
@@ -305,7 +350,7 @@ export class Session {
       );
     }
     // A reviewed registry skill that fits this request: offer it once (README §8).
-    const offer = claude ? suggestSkill(this.opts.cwd, route, text) : null;
+    const offer = claude || harness ? suggestSkill(this.opts.cwd, route, text) : null;
     if (offer) {
       const yes = await this.ask({
         kind: 'skill',
@@ -361,7 +406,9 @@ export class Session {
       result =
         agent === 'mock'
           ? await runMock(ctx, { text, element: msg.element })
-          : await (this.opts.runClaude ?? runClaude)(ctx, {
+          : harness
+            ? await this.harness.run(ctx, { kind: attempt === 1 ? 'task' : 'fix', text, prompt, checks: route.checks, site: this.opts.site?.() ?? null })
+            : await (this.opts.runClaude ?? runClaude)(ctx, {
               prompt,
               route: { ...route, effort },
               apiKey: this.opts.apiKey ?? '',
@@ -392,7 +439,7 @@ export class Session {
       const failed = checkResults.filter((r) => !r.ok && !r.skipped);
       if (failed.length === 0 || abort.signal.aborted) break;
       const which = failed.map((f) => CHECK_NAMES[f.check]).join(' and ');
-      if (attempt >= 2 || !claude) {
+      if (attempt >= 2 || !(claude || harness)) {
         result = {
           ...result,
           ok: false,
@@ -400,9 +447,11 @@ export class Session {
         };
         break;
       }
-      // One retry, one effort level up (README §6).
+      // One retry, one effort level up (README §6). A coding agent picks its own effort.
       effort = shiftEffort(effort, 1);
-      const reason = `The ${which} check failed, so the hive tries once more at ${EFFORT_LABELS[effort]} effort.`;
+      const reason = harness
+        ? `The ${which} check failed, so ${this.harness.state().client} tries once more with the error in hand.`
+        : `The ${which} check failed, so the hive tries once more at ${EFFORT_LABELS[effort]} effort.`;
       this.remember({ role: 'system', text: reason });
       this.broadcast({ type: 'retry', route: { ...route, effort, label: EFFORT_LABELS[effort], reason }, reason });
       this.opts.log(reason);
@@ -414,6 +463,7 @@ export class Session {
     const committed = this.checkpoints.commit();
     const stopped = abort.signal.aborted;
     const ok = result.ok && !stopped;
+    if (harness) this.harness.settle({ ok, summary: result.summary, stopped });
     // Only a real Claude attempt that failed on its own earns the next try more effort:
     // demo mode can't do most things, and pressing Stop isn't a failure.
     this.lastFailed = !ok && claude && !stopped;
@@ -478,6 +528,7 @@ export class Session {
   stop(): void {
     this.abort?.abort();
     this.pendingConfirm?.answer(false);
+    this.harness.stop();
     for (const ws of this.clients) ws.close();
   }
 }

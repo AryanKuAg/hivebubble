@@ -225,7 +225,8 @@ export interface ToolWhere {
   hits?: SearchHit[];
 }
 
-export type AgentKind = 'claude' | 'mock' | 'missing-key' | 'invalid-key';
+/** 'harness': a coding agent the person runs (Claude Code) connects and does the work; no API key. */
+export type AgentKind = 'harness' | 'claude' | 'mock' | 'missing-key' | 'invalid-key';
 
 export interface ChatEntry {
   role: 'user' | 'assistant' | 'system';
@@ -263,6 +264,8 @@ export type ServerEvent =
       spend: SpendSummary;
       /** A request to put in the message box (what someone asked for when creating the app). */
       draft?: string;
+      /** With the harness agent: is a coding agent connected, and which. */
+      harness?: { connected: boolean; client: string };
     }
   | { type: 'route'; route: Route }
   | { type: 'status'; state: 'idle' | 'working' }
@@ -313,6 +316,8 @@ export type ServerEvent =
       durationMs?: number;
     }
   | { type: 'spend'; spend: SpendSummary }
+  /** A coding agent (Claude Code) connected to Hivebubble, or left. */
+  | { type: 'harness'; connected: boolean; client: string }
   | ({ type: 'data-info' } & DataInfo)
   | { type: 'data-working'; message: string }
   | { type: 'data-result'; question?: string; sql: string; headline: string; explanation?: string; table: DataTable; ms: number; costUsd?: number }

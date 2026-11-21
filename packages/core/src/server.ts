@@ -1,9 +1,11 @@
 import { randomBytes } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import type http from 'node:http';
 import { createRequire } from 'node:module';
 import { verifyApiKey } from './agent.js';
 import { Checker } from './checks.js';
+import { projectDataDir } from './home.js';
 import { DevErrorCatcher } from './logs.js';
 import { sourceFiles } from './mockAgent.js';
 import { ManagedProcess, findFreePort, waitForPort } from './processes.js';
@@ -18,14 +20,20 @@ export type StartState = 'detecting' | 'installing' | 'starting' | 'ready' | 'st
 export interface Reporter {
   status(state: StartState, message: string, extra?: Record<string, unknown>): void;
   log(source: 'install' | 'dev' | 'hivebubble', line: string): void;
+  /** Other news for the desktop app, e.g. ('harness', { connected, client }). */
+  event?(name: string, data: Record<string, unknown>): void;
 }
 
 export interface StartOptions {
   projectDir: string;
   /** Preview port to try first. */
   port?: number;
-  /** 'mock' runs the demo agent; otherwise Claude runs when an API key is present. */
-  agent?: 'auto' | 'mock';
+  /**
+   * Who does the work. 'harness' (the default): a coding agent the person
+   * runs, like Claude Code with Hivebubble's plugin; no API key. 'api':
+   * Hivebubble's own Claude agent with an Anthropic API key. 'mock': demo mode.
+   */
+  agent?: 'harness' | 'api' | 'mock';
   apiKey?: string;
   maxBudgetUsd?: number;
   /** A request to put in the bubble's message box (from creating the app). */
@@ -69,6 +77,31 @@ function listen(server: http.Server, port: number): Promise<void> {
   });
 }
 
+/**
+ * .hivebubble/engine.json: where this engine listens and the key for its
+ * coding-agent API. Readable by the person's own programs only (0600), so
+ * Claude Code's plugin can find the engine and a web page never can.
+ */
+export function writeEngineFile(projectDir: string, data: { url: string; token: string; agent: AgentKind; project: string }): string {
+  const file = path.join(projectDataDir(projectDir), 'engine.json');
+  writeFileSync(file, `${JSON.stringify({ version: 1, ...data, pid: process.pid, startedAt: new Date().toISOString() }, null, 2)}\n`, { mode: 0o600 });
+  try {
+    chmodSync(file, 0o600);
+  } catch {
+    // Windows keeps its own permissions.
+  }
+  return file;
+}
+
+function removeEngineFile(file: string): void {
+  try {
+    const data = JSON.parse(readFileSync(file, 'utf8')) as { pid?: number };
+    if (data.pid === process.pid) rmSync(file, { force: true });
+  } catch {
+    // Already gone.
+  }
+}
+
 export async function startHivebubble(opts: StartOptions): Promise<Running> {
   const r = opts.reporter;
   const attach = opts.attach ? parseAttachUrl(opts.attach) : null;
@@ -78,7 +111,7 @@ export async function startHivebubble(opts: StartOptions): Promise<Running> {
   r.log('hivebubble', `Project: ${info.name} (${project.framework}, ${info.packageManager}) at ${info.dir}`);
 
   const bubbleFile = bubbleScriptPath();
-  let agent: AgentKind = opts.agent === 'mock' ? 'mock' : opts.apiKey ? 'claude' : 'missing-key';
+  let agent: AgentKind = opts.agent === 'mock' ? 'mock' : opts.agent === 'api' ? (opts.apiKey ? 'claude' : 'missing-key') : 'harness';
   if (agent === 'claude' && opts.apiKey) {
     const check = await verifyApiKey(opts.apiKey);
     if (check === 'rejected') {
@@ -90,11 +123,18 @@ export async function startHivebubble(opts: StartOptions): Promise<Running> {
   }
   if (agent === 'missing-key') r.log('hivebubble', 'No Anthropic API key found. The bubble will open, but Claude cannot make changes until you add a key.');
   if (agent === 'mock') r.log('hivebubble', 'Demo mode: a local stand-in agent that can only change text. No Claude calls.');
+  if (agent === 'harness') {
+    r.log('hivebubble', 'No API key needed: Claude Code does the work. In Claude Code, in this project’s folder, type /hivebubble:work.');
+    r.log('hivebubble', 'First time? Add Hivebubble’s plugin to Claude Code: claude plugin marketplace add AryanKuAg/hivebubble, then claude plugin install hivebubble@hivebubble.');
+  }
 
   let devPort: number | null = null;
   const log = (line: string) => r.log('hivebubble', line);
   const checker = new Checker(info, () => devPort, log);
+  // Where the person's own dev server is (named in requests for a coding agent).
+  const siteUrl = () => (attach ? attach.origin : devPort ? `http://localhost:${devPort}` : null);
   const session = new Session({
+    site: siteUrl,
     cwd: info.dir,
     project,
     agent,
@@ -110,11 +150,14 @@ export async function startHivebubble(opts: StartOptions): Promise<Running> {
 
   // Errors in the dev server's output go to the logs summary (Users & Data).
   const devErrors = new DevErrorCatcher(session.errors);
+  session.harness.onChange = (state) => r.event?.('harness', state);
 
   let stopping = false;
   let preview = '';
   // A new secret every run: the browser extension pairs again by itself.
   const pairing = { token: randomBytes(24).toString('base64url'), extensionIds: extensionIds() };
+  // The coding agent's key: only in .hivebubble/engine.json, never sent to a page.
+  const harnessToken = randomBytes(24).toString('base64url');
   const server = createProxy({
     target: () => devPort,
     bubbleJs: () => readFileSync(bubbleFile, 'utf8'),
@@ -128,9 +171,10 @@ export async function startHivebubble(opts: StartOptions): Promise<Running> {
       sourceTags: session.sourceTags,
       preview,
       // The person's own dev server: the browser extension adds the bubble there.
-      site: attach ? attach.origin : devPort ? `http://localhost:${devPort}` : null,
+      site: siteUrl(),
     }),
     pairing,
+    harness: { token: harnessToken, handle: (name, body, client, signal) => session.harnessApi(name, body, client, signal) },
   });
   let proxyPort = await findFreePort(opts.port ?? 4321);
   for (let attempt = 0; ; attempt++) {
@@ -144,11 +188,14 @@ export async function startHivebubble(opts: StartOptions): Promise<Running> {
   }
   const url = `http://localhost:${proxyPort}`;
   preview = url;
+  // How Claude Code's Hivebubble plugin finds this engine: the project's own folder.
+  const engineFile = writeEngineFile(info.dir, { url: `http://127.0.0.1:${proxyPort}`, token: harnessToken, agent, project: info.name });
 
   const cleanupServer = () => {
     session.stop();
     server.close();
     server.closeAllConnections();
+    removeEngineFile(engineFile);
   };
 
   if (attach) {

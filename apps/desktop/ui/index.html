@@ -58,6 +58,7 @@
           <li data-step="ready">Live</li>
         </ol>
         <p id="status" class="status">Starting…</p>
+        <p id="agent-status" class="small agent-status" hidden></p>
         <div id="live" class="live" hidden>
           <span class="mono" id="url"></span>
           <button id="open" class="primary" type="button">Open in browser</button>
@@ -99,17 +100,24 @@
 
       <!-- Settings -->
       <aside class="card side">
-        <h2>Claude</h2>
-        <p class="muted">Hivebubble uses your own Anthropic API key. It's stored in <span data-vault>your Mac’s Keychain</span> and only sent to Anthropic.</p>
-        <p id="key-status" class="pill">Checking…</p>
-        <form id="key-form">
-          <label for="key" class="sr-only">Anthropic API key</label>
-          <input id="key" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false" />
-          <button class="primary" type="submit">Save key</button>
-        </form>
-        <button id="clear-key" class="link" type="button" hidden>Remove saved key</button>
-        <p id="key-msg" class="muted small" role="status"></p>
-        <p class="small muted">Get a key at <span class="mono">platform.claude.com</span>. A Claude.ai subscription login can't be used in third-party apps.</p>
+        <h2>Claude Code</h2>
+        <p class="muted">Hivebubble needs no API key: Claude Code does the work, with your own Claude login.</p>
+        <ol class="steps-list small">
+          <li>Once, add Hivebubble to Claude Code:<br /><code class="mono copy">claude plugin install hivebubble --marketplace AryanKuAg/hivebubble</code></li>
+          <li>Open Claude Code in your project’s folder and type <code class="mono">/hivebubble:work</code>. Then talk to your site in the bubble.</li>
+        </ol>
+        <details class="api-key">
+          <summary class="small">Use an Anthropic API key instead (optional)</summary>
+          <p class="small muted">With a key saved here, Hivebubble uses its own Claude agent and pays per task from your API account. It's stored in <span data-vault>your Mac’s Keychain</span> and only sent to Anthropic.</p>
+          <p id="key-status" class="pill">Checking…</p>
+          <form id="key-form">
+            <label for="key" class="sr-only">Anthropic API key</label>
+            <input id="key" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false" />
+            <button class="secondary" type="submit">Save key</button>
+          </form>
+          <button id="clear-key" class="link" type="button" hidden>Remove saved key</button>
+          <p id="key-msg" class="muted small" role="status"></p>
+        </details>
         <hr />
         <h2>Hosting</h2>
         <p class="small muted">Connect an account to put sites online from the bubble. Tokens stay in <span data-vault>your Mac’s Keychain</span>.</p>
@@ -138,7 +146,7 @@
           <button class="secondary" type="submit">Save</button>
         </form>
         <p id="cap-msg" class="muted small" role="status"></p>
-        <p class="small muted">Hivebubble pauses for the day once Claude has cost this much, and asks before big tasks.</p>
+        <p class="small muted">With an API key, Hivebubble pauses for the day once Claude has cost this much, and asks before big tasks. Claude Code uses your own Claude plan instead.</p>
         <hr />
         <h2>System</h2>
         <p class="small" id="node-status">Node.js: checking…</p>

@@ -24,6 +24,17 @@ export interface Pairing {
   extensionIds: string[];
 }
 
+export const HARNESS_PREFIX = '/__hivebubble/harness/';
+
+/** The local API a coding agent's plugin (Claude Code) uses: next request, say, finish, hook events, data tools. */
+export interface HarnessApi {
+  /** The key in .hivebubble/engine.json: only programs on this computer that can read the project can call it. */
+  token: string;
+  handle(name: string, body: Record<string, unknown>, client: string | undefined, signal: AbortSignal): Promise<unknown>;
+}
+
+export class ApiNotFound extends Error {}
+
 export interface ProxyOptions {
   /** The dev server port, or null while it is still starting. */
   target: () => number | null;
@@ -32,6 +43,62 @@ export interface ProxyOptions {
   health: () => Record<string, unknown>;
   /** Lets the browser extension add bubbles to other localhost pages. */
   pairing?: Pairing;
+  harness?: HarnessApi;
+}
+
+function readJsonBody(req: http.IncomingMessage, max: number): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on('data', (c: Buffer) => {
+      size += c.length;
+      if (size > max) {
+        reject(new Error('Too big.'));
+        req.destroy();
+      } else chunks.push(c);
+    });
+    req.on('end', () => {
+      try {
+        const text = Buffer.concat(chunks).toString('utf8');
+        const value: unknown = text ? JSON.parse(text) : {};
+        resolve(value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {});
+      } catch (err) {
+        reject(err);
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+async function handleHarness(req: http.IncomingMessage, res: http.ServerResponse, name: string, api: HarnessApi): Promise<void> {
+  const reply = (status: number, data: unknown) => {
+    if (res.writableEnded) return;
+    if (!res.headersSent) res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(JSON.stringify(data ?? {}));
+  };
+  // Browsers always send Origin; a coding agent's local tools don't. No web page gets in.
+  if (req.headers.origin !== undefined) return reply(403, { error: 'Not for web pages.' });
+  if (req.method !== 'POST') return reply(405, { error: 'POST only.' });
+  const auth = req.headers.authorization ?? '';
+  if (!auth.startsWith('Bearer ') || !sameSecret(auth.slice(7), api.token)) {
+    return reply(401, { error: 'Wrong or missing key. It is in the project’s .hivebubble/engine.json, and changes each time Hivebubble starts.' });
+  }
+  let body: Record<string, unknown>;
+  try {
+    body = await readJsonBody(req, 2_000_000);
+  } catch {
+    return reply(400, { error: 'The body must be a JSON object.' });
+  }
+  const ac = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) ac.abort();
+  });
+  const client = typeof req.headers['x-hivebubble-client'] === 'string' ? req.headers['x-hivebubble-client'] : undefined;
+  try {
+    reply(200, await api.handle(name, body, client, ac.signal));
+  } catch (err) {
+    reply(err instanceof ApiNotFound ? 404 : 500, { error: err instanceof Error ? err.message : String(err) });
+  }
 }
 
 const STARTING_PAGE = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="1.5">
@@ -114,6 +181,15 @@ export function createProxy(opts: ProxyOptions): http.Server {
     if (url === '/__hivebubble/health') {
       res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
       res.end(JSON.stringify(opts.health()));
+      return;
+    }
+    if (url.startsWith(HARNESS_PREFIX)) {
+      if (!opts.harness) {
+        res.writeHead(404, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'This Hivebubble has no coding-agent API.' }));
+        return;
+      }
+      void handleHarness(req, res, url.slice(HARNESS_PREFIX.length).split('?')[0], opts.harness);
       return;
     }
     if (url === PAIR_PATH) {

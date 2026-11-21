@@ -39,6 +39,11 @@ header { display: flex; align-items: center; gap: 8px; padding: 12px 12px 12px 1
 .brand svg { width: 24px; height: 24px; flex: none; }
 .chip { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--honey-tint); color: var(--honey-ink); white-space: nowrap; }
 .chip.off { background: rgba(180,35,24,.1); color: var(--error); }
+.chip.ok { background: rgba(43,138,62,.12); color: var(--ok); }
+/* The header is full: chips keep their words, and the name gives way first (Hiveb…). */
+.brand .chip { flex: none; }
+.brand > span:not(.chip) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+header .undo .txt { display: none; }
 .conn { font-size: 12px; color: var(--muted); }
 .icon-btn { display: inline-flex; align-items: center; gap: 4px; border: 1px solid transparent; background: none; border-radius: 8px; padding: 6px; color: var(--muted); }
 .icon-btn:hover:not(:disabled) { background: rgba(31,26,20,.06); color: var(--ink); }
